@@ -5,7 +5,10 @@ import getpass
 
 
 def get_base_dir():
-    if getattr(sys, "frozen", False):
+    override = os.environ.get("MTGA_DRAFT_TOOL_HOME")
+    if override:
+        path = override
+    elif getattr(sys, "frozen", False):
         if sys.platform == "darwin":
             path = os.path.expanduser("~/Library/Application Support/MTGA_Draft_Tool")
         elif sys.platform == "linux":

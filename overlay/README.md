@@ -6,22 +6,36 @@ pushes draft snapshots over a WebSocket; this app only renders them.
 
 ## Running
 
-From the repository root, start the bridge (Python 3.12+):
+Create the Python environment once, from the repository root (Python 3.12+):
 
 ```bash
 python -m venv .venv
 .venv/Scripts/pip install numpy pillow pydantic requests numba scipy pywin32 ttkbootstrap pynput
 .venv/Scripts/pip install -r bridge/requirements.txt
-.venv/Scripts/python -m bridge
 ```
 
 Then in `overlay/`:
 
 ```bash
 npm install
-npm run tauri dev   # transparent always-on-top window
-npm run dev         # or just the UI in a browser at http://localhost:5173
+npm run tauri dev   # transparent always-on-top window; starts the bridge from .venv
+npm run dev         # or just the UI in a browser (start the bridge yourself)
 ```
+
+The app only starts a bridge if nothing is already listening on port 8617, so
+you can run `.venv/Scripts/python -m bridge -f <log>` by hand when needed.
+
+## Building the installer
+
+```bash
+.venv/Scripts/pip install pyinstaller
+.venv/Scripts/python bridge/build.py   # writes overlay/src-tauri/binaries/mtga-bridge-<triple>.exe
+cd overlay && npm run bundle           # src-tauri/target/release/bundle/nsis/*-setup.exe
+```
+
+The installed app keeps datasets and logs in its app data folder
+(`%APPDATA%/com.mtgadraft.overlay`) and shares `config.json` with the
+original Tkinter app.
 
 ## Developing without a live draft
 
