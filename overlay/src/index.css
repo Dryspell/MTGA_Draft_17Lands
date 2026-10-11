@@ -1,0 +1,43 @@
+@import 'tailwindcss';
+
+@theme static {
+  --font-sans: 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+
+  --color-mana-w: #f3e9c6;
+  --color-mana-u: #4ea7e6;
+  --color-mana-b: #a990c4;
+  --color-mana-r: #f0624f;
+  --color-mana-g: #4fbf75;
+  --color-mana-c: #a8a29e;
+  --color-mana-gold: #e0b94a;
+
+  --color-surface: rgb(17 18 23 / 0.92);
+  --color-panel: rgb(255 255 255 / 0.04);
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-accent: #8b7cf6;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  color: #e7e5e4;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.12);
+  border-radius: 3px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
