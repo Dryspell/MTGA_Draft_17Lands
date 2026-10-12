@@ -1,5 +1,5 @@
 import type {
-  Card, Config, DatasetFile, DeckEntry, DeckView, HistoryLog, Job, Meta, SealedState, SetOption, TierFile,
+  Card, Config, DatasetFile, DeckEntry, DeckView, GameRecord, HistoryLog, Job, Meta, SealedState, SetOption, TierFile,
 } from './types'
 
 export const HOST = import.meta.env.VITE_BRIDGE_HOST ?? '127.0.0.1:8617'
@@ -73,6 +73,8 @@ export const api = {
   practiceSets: () => get<{ code: string; label: string; active: boolean }[]>('/api/sealed/sets'),
   practiceSealed: (code: string, mode: 'generate' | 'import', text = '') =>
     post<SealedState>('/api/sealed/practice', { code, mode, text }),
+  games: () => get<GameRecord[]>('/api/games'),
+  buildRecords: (sessionId: string) => get<Record<string, { wins: number; losses: number }>>(`/api/games/records?session_id=${encodeURIComponent(sessionId)}`),
   liveSealed: () => post<SealedState>('/api/sealed/live'),
   sealed: (id: string) => get<SealedState>(`/api/sealed/${id}`),
   sealedAction: (id: string, body: { op: string; name?: string; new_name?: string; card?: string; count?: number; text?: string; cards?: DeckEntry[] }) =>

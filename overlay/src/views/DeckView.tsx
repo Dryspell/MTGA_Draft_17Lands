@@ -62,7 +62,7 @@ export function DeckView() {
 }
 
 function Workspace({ session, update, live }: { session: SealedState; update: (s: SealedState) => void; live: boolean }) {
-  const { runJob, toast } = useApp()
+  const { runJob, toast, game } = useApp()
   const { setSealedId } = useUi()
   const [view, setView] = useState<'visual' | 'list'>('visual')
   const [busy, setBusy] = useState('')
@@ -70,6 +70,12 @@ function Workspace({ session, update, live }: { session: SealedState; update: (s
   const [practice, setPractice] = useState<null | 'generate' | 'import'>(null)
   const [filters, setFilters] = useState<Filters>({ creatures: true, spells: true, lands: true, W: true, U: true, B: true, R: true, G: true, C: true })
   const layout = usePileLayout(`${session.id}:${session.active}`)
+  const [records, setRecords] = useState<Record<string, { wins: number; losses: number }>>({})
+  const variantKey = session.variants.join('|')
+
+  useEffect(() => {
+    api.buildRecords(session.id).then(setRecords).catch(() => {})
+  }, [session.id, variantKey, game?.result])
 
   const pool = useMemo(() => session.sideboard.filter((c) => {
     const typeOk = isLand(c) ? filters.lands : isCreature(c) ? filters.creatures : filters.spells
@@ -168,6 +174,9 @@ function Workspace({ session, update, live }: { session: SealedState; update: (s
             title="Double-click to rename"
           >
             {v}
+            {(records[v]?.wins || records[v]?.losses) ? (
+              <span className="tabular ml-1.5 text-[10px] text-stone-400" title="Games played with this build">{records[v].wins}–{records[v].losses}</span>
+            ) : null}
           </button>
         ))}
         <Button variant="ghost" onClick={() => act({ op: 'create' })}>+ New</Button>

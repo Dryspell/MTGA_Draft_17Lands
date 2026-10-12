@@ -23,6 +23,8 @@ class BridgeState:
         self.clients: Set[WebSocket] = set()
         self.refresh_requested = asyncio.Event()
         self.sealed_sessions: Dict[str, dict] = {}
+        self.games = None
+        self.game_view: Optional[dict] = None
 
     @property
     def ready(self) -> bool:

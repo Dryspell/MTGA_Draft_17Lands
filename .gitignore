@@ -189,3 +189,6 @@ todo.md
 
 # Node (Tools/TierScraper17Lands)
 node_modules/
+
+# Saved game reviews (dev)
+Games/

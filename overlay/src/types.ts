@@ -166,6 +166,7 @@ export interface Job<T = unknown> {
 export type BridgeMessage =
   | { type: 'status'; status: string }
   | { type: 'snapshot'; snapshot: Snapshot }
+  | { type: 'game'; game: GameView | null }
   | ({ type: 'job' } & Job)
 
 export interface DeckEntry {
@@ -249,4 +250,56 @@ export interface HistoryLog {
   set: string
   event: string
   time: string
+}
+
+export interface BoardCard extends Card {
+  grpId: number
+  instanceId: number
+  power?: number | null
+  toughness?: number | null
+  tapped: boolean
+  token: boolean
+}
+
+export interface GameSide {
+  life: number
+  hand: number
+  library: number
+  graveyard: number
+  lands: { untapped: number; total: number; colors: string[] }
+  battlefield: BoardCard[]
+}
+
+export interface GameView {
+  matchId: string
+  gameNumber: number
+  eventId: string
+  active: boolean
+  result: 'win' | 'loss' | 'draw' | null
+  turn: number
+  phase: string
+  step: string
+  myTurn: boolean
+  onPlay: boolean | null
+  me: GameSide
+  opponent: GameSide & { colors: string[]; archetype: string; seen: Card[] }
+  tricks: (Card & { trickKind: string })[]
+  library: { size: number; tracked: boolean; landNext: number; landWithin2: number; cards: (Card & { nextDraw: number })[] }
+}
+
+export interface GameRecord {
+  id: string
+  matchId: string
+  gameNumber: number
+  eventId: string
+  time: string
+  result: 'win' | 'loss' | 'draw'
+  onPlay: boolean | null
+  mulligans: number
+  turns: number
+  deck: DeckEntry[]
+  opponent: { colors: string[]; archetype: string; cards: DeckEntry[] }
+  mana: { cardsSeen: number; landsSeen: number; landPct: number; missedDrops: number[]; verdict: 'screw' | 'flood' | 'smooth' }
+  life: [number, number, number][]
+  timeline: { turn: number; mine: boolean; action: string; name: string }[]
 }

@@ -12,6 +12,7 @@ import { Rail } from './components/Rail'
 import { Toasts } from './components/Toasts'
 import { CompareDrawer } from './components/CompareDrawer'
 import { DraftView } from './views/DraftView'
+import { GameTab } from './views/GameTab'
 import { DeckView } from './views/DeckView'
 import { DataView } from './views/DataView'
 import { SettingsView } from './views/SettingsView'
@@ -19,6 +20,7 @@ import { MiniView } from './views/MiniView'
 
 const VIEWS = {
   draft: DraftView,
+  game: GameTab,
   deck: DeckView,
   data: DataView,
   settings: SettingsView,
@@ -59,9 +61,22 @@ function useWindowEffects() {
   }, [mini])
 }
 
+/** Jump to the Game tab whenever a new game starts. */
+function useFollowGames() {
+  const { game } = useApp()
+  const { setTab } = useUi()
+  const seen = useRef<string | null>(null)
+  const key = game?.active ? `${game.matchId}:${game.gameNumber}` : null
+  useEffect(() => {
+    if (key && key !== seen.current) setTab('game')
+    seen.current = key ?? seen.current
+  }, [key, setTab])
+}
+
 function Shell() {
   const { tab, mini } = useUi()
   useWindowEffects()
+  useFollowGames()
   const View = VIEWS[tab] ?? DraftView
 
   return (

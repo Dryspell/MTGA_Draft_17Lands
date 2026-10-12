@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { Config, Job, Meta, Settings, Snapshot } from './types'
+import type { Config, GameView, Job, Meta, Settings, Snapshot } from './types'
 
 export type Tone = 'info' | 'success' | 'error'
 export interface Toast {
@@ -14,6 +14,8 @@ export interface AppState {
   connected: boolean
   status: string
   snapshot: Snapshot | null
+  /** The game being played (or the last one), from Arena's game log. */
+  game: GameView | null
   meta: Meta | null
   config: Config | null
   toasts: Toast[]

@@ -16,7 +16,8 @@ from src.boot import load_data
 from src.configuration import read_configuration
 from src.ui.orchestrator import DraftOrchestrator
 
-from bridge import routes_data, routes_decks, routes_draft
+from bridge import game_view, routes_data, routes_decks, routes_draft, routes_game
+from bridge.game import GameTracker
 from bridge.jobs import list_jobs
 from bridge.snapshot import build_snapshot
 from bridge.state import state
@@ -41,16 +42,36 @@ async def _boot(args):
     state.scanner = data["scanner"]
     state.orchestrator = DraftOrchestrator(state.scanner, state.config, None)
     state.orchestrator.start()
+    state.games = GameTracker(_record_game)
     await state.set_status("Ready")
     await refresh()
 
 
+def _record_game(game):
+    game_view.append_history(game_view.build_record(game, state.scanner.set_data))
+
+
+async def _poll_game():
+    if not state.games:
+        return
+    if await asyncio.to_thread(state.games.poll, state.scanner.arena_file):
+        state.game_view = await asyncio.to_thread(game_view.build_view, state.games, state.scanner.set_data)
+        await state.broadcast({"type": "game", "game": state.game_view})
+
+
 async def _pump():
     """Forward orchestrator queue messages to connected overlays."""
+    tick = 0
     while True:
         await asyncio.sleep(0.1)
         if not state.ready:
             continue
+        tick += 1
+        if tick % 5 == 0:
+            try:
+                await _poll_game()
+            except Exception as e:
+                logger.error(f"Game tracking failed: {e}", exc_info=True)
         do_refresh = state.refresh_requested.is_set()
         state.refresh_requested.clear()
         while True:
@@ -100,6 +121,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
     app.include_router(routes_draft.router)
     app.include_router(routes_data.router)
     app.include_router(routes_decks.router)
+    app.include_router(routes_game.router)
 
     @app.get("/api/jobs")
     def jobs():
@@ -112,6 +134,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         await ws.send_json({"type": "status", "status": state.status})
         if state.snapshot:
             await ws.send_json({"type": "snapshot", "snapshot": state.snapshot})
+        if state.game_view:
+            await ws.send_json({"type": "game", "game": state.game_view})
         try:
             while True:
                 await ws.receive_text()

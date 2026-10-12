@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, HOST } from './api'
 import { AppContext, type AppState, type JobListener, type Toast, type Tone } from './store'
-import type { BridgeMessage, Config, Job, Meta, Settings, Snapshot } from './types'
+import type { BridgeMessage, Config, GameView, Job, Meta, Settings, Snapshot } from './types'
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false)
   const [status, setStatus] = useState('Connecting to engine...')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
+  const [game, setGame] = useState<GameView | null>(null)
   const [meta, setMeta] = useState<Meta | null>(null)
   const [config, setConfig] = useState<Config | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -53,6 +54,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setStatus(msg.status)
           if (msg.status === 'Ready') refreshConfig()
         } else if (msg.type === 'snapshot') setSnapshot(msg.snapshot)
+        else if (msg.type === 'game') setGame(msg.game)
         else if (msg.type === 'job') onJob(msg)
       }
       ws.onclose = () => {
@@ -111,10 +113,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppState>(
     () => ({
-      connected, status, snapshot, meta, config, toasts,
+      connected, status, snapshot, game, meta, config, toasts,
       patchSettings, patchConfig, refreshConfig, runJob, toast, dismissToast,
     }),
-    [connected, status, snapshot, meta, config, toasts, patchSettings, patchConfig, refreshConfig, runJob, toast, dismissToast],
+    [connected, status, snapshot, game, meta, config, toasts, patchSettings, patchConfig, refreshConfig, runJob, toast, dismissToast],
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
