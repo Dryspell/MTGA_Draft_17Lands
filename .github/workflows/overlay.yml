@@ -5,14 +5,6 @@ on:
   push:
     branches: ["react-overlay"]
     tags: ["overlay-v*"]
-    paths:
-      - "overlay/**"
-      - "bridge/**"
-      - "src/**"
-      - "tests/bridge/**"
-      - "pyproject.toml"
-      - "poetry.lock"
-      - ".github/workflows/overlay.yml"
   pull_request:
     paths:
       - "overlay/**"
@@ -98,4 +90,11 @@ jobs:
         with:
           name: MTGA Draft Overlay ${{ github.ref_name }}
           generate_release_notes: true
+          body: |
+            ## Install (Windows)
+            1. Download `MTGA.Draft.Overlay_*_x64-setup.exe` below and run it. The installer is not code-signed yet, so Windows SmartScreen will warn you: click **More info**, then **Run anyway**. No admin rights are needed.
+            2. In MTG Arena, open **Options → Account** and check **Detailed Logs (Plugin Support)**, then restart Arena.
+            3. Start **MTGA Draft Overlay**. The first launch takes a minute while it downloads 17Lands data for current sets. Join a draft and the overlay follows it automatically.
+
+            Based on [unrealities/MTGA_Draft_17Lands](https://github.com/unrealities/MTGA_Draft_17Lands) (MIT License), with a new React/Tauri interface.
           files: overlay/src-tauri/target/release/bundle/nsis/*.exe
