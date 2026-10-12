@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { Card } from '../types'
+import { CardInteractionsContext } from './cardInteractions'
 import { useApp } from '../store'
 import { useUi } from '../ui'
 import { ALL_DECKS, isBasic, scryfallUrl, tagLabel } from '../lib/cards'
@@ -14,23 +15,6 @@ interface Menu {
   card: Card
   x: number
   y: number
-}
-
-interface CardInteractions {
-  hover: (card: Card | null, el?: HTMLElement) => void
-  menu: (card: Card, e: MouseEvent) => void
-}
-
-const Ctx = createContext<CardInteractions>({ hover: () => {}, menu: () => {} })
-
-/** Props that give any element the card tooltip and context menu. */
-export function useCardProps(card: Card) {
-  const { hover, menu } = useContext(Ctx)
-  return {
-    onMouseEnter: (e: MouseEvent<HTMLElement>) => hover(card, e.currentTarget),
-    onMouseLeave: () => hover(null),
-    onContextMenu: (e: MouseEvent) => menu(card, e),
-  }
 }
 
 const PANEL_W = 236
@@ -61,11 +45,11 @@ export function CardInteractionsProvider({ children }: { children: ReactNode }) 
 
   const value = useMemo(() => ({ hover, menu }), [hover, menu])
   return (
-    <Ctx.Provider value={value}>
+    <CardInteractionsContext.Provider value={value}>
       {children}
       {hovered && <HoverPanel {...hovered} />}
       {menuState && <ContextMenu {...menuState} close={() => setMenu(null)} />}
-    </Ctx.Provider>
+    </CardInteractionsContext.Provider>
   )
 }
 

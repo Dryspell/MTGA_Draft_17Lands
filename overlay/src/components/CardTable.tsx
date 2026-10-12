@@ -4,7 +4,7 @@ import { useApp } from '../store'
 import { useFormat } from '../ui'
 import { formatStat, gradeTone, identityColor, statsFor, tagIcon, cardColors, COLOR_VAR } from '../lib/cards'
 import { ManaCost } from './ManaCost'
-import { useCardProps } from './CardHover'
+import { useCardProps } from './cardInteractions'
 
 const STAT_FIELDS = ['gihwr', 'ohwr', 'gpwr', 'gnswr', 'gdwr', 'iwd', 'alsa', 'ata']
 const BASE_FIELDS = ['value', ...STAT_FIELDS, 'wheel', 'colors', 'count', 'tags']

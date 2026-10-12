@@ -15,7 +15,8 @@ import { CmcPiles } from './PoolView'
 export function SealedView() {
   const { snapshot, runJob, toast } = useApp()
   const { sealedId, setSealedId } = useUi()
-  const [session, setSession] = useState<SealedState | null>(null)
+  const [loaded, setSession] = useState<SealedState | null>(null)
+  const session = loaded && loaded.id === sealedId ? loaded : null
   const [practice, setPractice] = useState<null | 'generate' | 'import'>(null)
   const [view, setView] = useState<'visual' | 'list'>('visual')
   const [busy, setBusy] = useState('')
@@ -23,7 +24,7 @@ export function SealedView() {
   const [filters, setFilters] = useState({ creatures: true, spells: true, lands: true, W: true, U: true, B: true, R: true, G: true, C: true })
 
   useEffect(() => {
-    if (!sealedId) return setSession(null)
+    if (!sealedId) return
     api.sealed(sealedId).then(setSession).catch(() => setSealedId(null))
   }, [sealedId, setSealedId])
 

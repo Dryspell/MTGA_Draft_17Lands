@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { Card, SimStats } from '../types'
 import { useApp } from '../store'
 import { COLOR_LABEL, COLOR_VAR, identityColor, tagLabel } from '../lib/cards'
 import { sampleHand, summarize } from '../lib/deck'
-import { useCardProps } from './CardHover'
+import { useCardProps } from './cardInteractions'
 import { Button, Section, Spinner, Stat } from './primitives'
 
 export function DeckStats({ deck }: { deck: Card[] }) {
@@ -109,9 +109,13 @@ export function SimResults({ stats, note, advice, busy, message }: { stats: SimS
   )
 }
 
+/** Deals a fresh hand whenever the deck's contents (not just its identity) change. */
 export function SampleHand({ deck }: { deck: Card[] }) {
-  const [hand, setHand] = useState<Card[]>([])
-  useEffect(() => setHand(sampleHand(deck)), [deck])
+  return <DealtHand key={deck.map((c) => c.name).join('|')} deck={deck} />
+}
+
+function DealtHand({ deck }: { deck: Card[] }) {
+  const [hand, setHand] = useState(() => sampleHand(deck))
   return (
     <Section id="sample_hand_panel" title="Sample hand" right={<Button variant="ghost" onClick={() => setHand(sampleHand(deck))}>Draw new hand</Button>}>
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-7">

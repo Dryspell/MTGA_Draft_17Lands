@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { api } from '../api'
 import { useApp } from '../store'
 import type { Settings } from '../types'
@@ -71,6 +71,7 @@ export function SettingsView() {
 
       <Section title="System paths">
         <PathRow
+          key={`log:${s.arena_log_location}`}
           label="Player.log location"
           hint="Leave empty to auto-detect. Setting a path pins it."
           value={s.arena_log_location}
@@ -78,6 +79,7 @@ export function SettingsView() {
           browse={() => pickFile('Locate Player.log', [{ name: 'Player.log', extensions: ['log'] }])}
         />
         <PathRow
+          key={`data:${s.database_location}`}
           label="MTGA_Data location"
           hint="Folder containing Downloads/Raw, used to recognize new cards"
           value={s.database_location}
@@ -112,7 +114,6 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 
 function PathRow({ label, hint, value, onSave, browse }: { label: string; hint: string; value: string; onSave: (v: string) => void; browse: () => Promise<string | null> }) {
   const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
   const commit = (v: string) => v !== value && onSave(v)
   return (
     <div className="flex flex-col gap-1 py-1.5">

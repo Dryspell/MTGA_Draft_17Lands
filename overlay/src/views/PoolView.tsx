@@ -7,7 +7,7 @@ import { identityColor, isCreature, isLand } from '../lib/cards'
 import { entries } from '../lib/deck'
 import { copyText } from '../lib/platform'
 import { CardTable } from '../components/CardTable'
-import { useCardProps } from '../components/CardHover'
+import { useCardProps } from '../components/cardInteractions'
 import { Button, Check, Empty, Segmented, Select } from '../components/primitives'
 
 const FOLLOW = 'Follow'

@@ -1,40 +1,7 @@
-import {
-  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, HOST } from './api'
+import { AppContext, type AppState, type JobListener, type Toast, type Tone } from './store'
 import type { BridgeMessage, Config, Job, Meta, Settings, Snapshot } from './types'
-
-type Tone = 'info' | 'success' | 'error'
-export interface Toast {
-  id: number
-  message: string
-  tone: Tone
-}
-
-type JobListener = (job: Job) => void
-
-interface AppState {
-  connected: boolean
-  status: string
-  snapshot: Snapshot | null
-  meta: Meta | null
-  config: Config | null
-  toasts: Toast[]
-  patchSettings: (patch: Partial<Settings>) => Promise<void>
-  patchConfig: (patch: Record<string, Record<string, unknown>>) => Promise<void>
-  refreshConfig: () => Promise<void>
-  runJob: <T>(start: Promise<Job>, onUpdate?: JobListener) => Promise<T>
-  toast: (message: string, tone?: Tone) => void
-  dismissToast: (id: number) => void
-}
-
-const AppContext = createContext<AppState | null>(null)
-
-export function useApp(): AppState {
-  const ctx = useContext(AppContext)
-  if (!ctx) throw new Error('useApp outside AppProvider')
-  return ctx
-}
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false)

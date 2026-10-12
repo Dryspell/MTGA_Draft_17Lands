@@ -1,7 +1,7 @@
 import type { Card } from '../types'
 import { useApp } from '../store'
 import { COLORS, COLOR_LABEL, COLOR_VAR, tagLabel } from '../lib/cards'
-import { useCardProps } from './CardHover'
+import { useCardProps } from './cardInteractions'
 
 /** Port of ManaCurvePlot: bars 0..5 and 6+, dashed ideal outline, colored by distance from ideal. */
 export function ManaCurve({ counts, ideal }: { counts: number[]; ideal: number[] }) {

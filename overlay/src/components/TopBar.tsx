@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useApp } from '../store'
 import { useUi } from '../ui'
@@ -15,12 +15,10 @@ export function TopBar() {
     if (connected && config) api.history().then(setHistory).catch(() => {})
   }, [connected, config, snapshot?.draftId, snapshot?.logFile])
 
-  const current = useMemo(() => {
-    for (const [event, groups] of Object.entries(sources?.events ?? {})) {
-      for (const [group, file] of Object.entries(groups)) if (file === snapshot?.dataset) return { event, group }
-    }
-    return null
-  }, [sources, snapshot?.dataset])
+  let current: { event: string; group: string } | null = null
+  for (const [event, groups] of Object.entries(sources?.events ?? {})) {
+    for (const [group, file] of Object.entries(groups)) if (file === snapshot?.dataset) current = { event, group }
+  }
 
   const setDataset = async (event: string, group?: string) => {
     const groups = sources?.events[event] ?? {}
