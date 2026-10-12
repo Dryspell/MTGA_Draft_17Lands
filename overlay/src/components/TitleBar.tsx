@@ -13,6 +13,35 @@ function useUpdate() {
   return update
 }
 
+function UpdateButton({ update }: { update: UpdateInfo }) {
+  const { toast } = useApp()
+  const [progress, setProgress] = useState<number | null | undefined>(undefined)
+  const busy = progress !== undefined
+
+  const run = async () => {
+    if (!update.install) return openUrl(update.url)
+    if (!window.confirm(`Install version ${update.version} now? The overlay will close and reopen when it's done.`)) return
+    setProgress(0)
+    try {
+      await update.install(setProgress)
+    } catch (e) {
+      setProgress(undefined)
+      toast(`Update failed: ${(e as Error).message ?? e}. You can download it from the release page instead.`, 'error')
+    }
+  }
+
+  return (
+    <button
+      onClick={run}
+      disabled={busy}
+      className="shrink-0 rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/30 disabled:opacity-80"
+      title={update.install ? `Version ${update.version} is available. Click to install it now.` : `Version ${update.version} is available. Click to open the release page.`}
+    >
+      {!busy ? `Update ${update.version}` : progress === null ? 'Installing…' : `Downloading ${Math.round(progress * 100)}%`}
+    </button>
+  )
+}
+
 export function TitleBar() {
   const { snapshot, connected, status, config, patchSettings } = useApp()
   const { mini, setMini } = useUi()
@@ -39,15 +68,7 @@ export function TitleBar() {
         {snapshot && !snapshot.isLiveLog && snapshot.logFile && <span className="text-[11px] text-amber-400/80">past draft</span>}
       </div>
       {snapshot && live && <SignalDots signals={snapshot.signals} />}
-      {update && (
-        <button
-          onClick={() => openUrl(update.url)}
-          className="shrink-0 rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/30"
-          title={`Version ${update.version} is available. Click to open the release page.`}
-        >
-          Update {update.version}
-        </button>
-      )}
+      {update && <UpdateButton update={update} />}
       <div className="flex items-center">
         <button onClick={() => setMini(!mini)} className={btn} title={mini ? 'Restore full window' : 'Mini overlay mode'}>
           {mini ? '⤢' : '⤡'}

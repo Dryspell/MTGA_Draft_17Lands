@@ -1,7 +1,7 @@
 {
   "name": "overlay",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,6 +18,8 @@
     "@tauri-apps/api": "^2.12.3",
     "@tauri-apps/plugin-clipboard-manager": "^2.4.2",
     "@tauri-apps/plugin-dialog": "^2.8.2",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.13.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3"

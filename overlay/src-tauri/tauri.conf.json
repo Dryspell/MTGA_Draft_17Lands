@@ -40,5 +40,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzQUEyMjE4OTY1ODM0MzAKUldRd05GaVdHQ0txczdpWlVlUVFkWEk1WVR2TjB6V1Ywa2kyKzZkV2V5RGFDakxXQTJrWmNYLzIK",
+      "endpoints": ["https://github.com/Dryspell/MTGA_Draft_17Lands/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

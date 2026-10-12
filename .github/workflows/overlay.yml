@@ -82,19 +82,48 @@ jobs:
         run: poetry run python bridge/build.py
       - name: Build installer
         working-directory: overlay
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           npm ci
           npm run bundle
+      - name: Prepare installer and updater feed
+        shell: python
+        run: |
+          import glob, json, os, shutil
+          from datetime import datetime, timezone
+          version = os.environ["GITHUB_REF_NAME"].removeprefix("overlay-v")
+          nsis = "overlay/src-tauri/target/release/bundle/nsis"
+          installer = glob.glob(f"{nsis}/*_{version}_x64-setup.exe")[0]
+          name = f"MTGA-Draft-Overlay_{version}_x64-setup.exe"
+          os.makedirs("release", exist_ok=True)
+          shutil.copy(installer, f"release/{name}")
+          signature = open(installer + ".sig", encoding="utf-8").read().strip()
+          url = f"https://github.com/${{ github.repository }}/releases/download/{os.environ['GITHUB_REF_NAME']}/{name}"
+          feed = {
+              "version": version,
+              "notes": f"https://github.com/${{ github.repository }}/releases/tag/{os.environ['GITHUB_REF_NAME']}",
+              "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {"windows-x86_64": {"signature": signature, "url": url}},
+          }
+          json.dump(feed, open("release/latest.json", "w"), indent=2)
+          print(json.dumps(feed, indent=2))
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           name: MTGA Draft Overlay ${{ github.ref_name }}
           generate_release_notes: true
+          make_latest: true
           body: |
             ## Install (Windows)
-            1. Download `MTGA.Draft.Overlay_*_x64-setup.exe` below and run it. The installer is not code-signed yet, so Windows SmartScreen will warn you: click **More info**, then **Run anyway**. No admin rights are needed.
+            Already have 0.1.3 or later? Click **Update** in the overlay's title bar instead; it installs in place and restarts.
+
+            1. Download `MTGA-Draft-Overlay_*_x64-setup.exe` below and run it. The installer is not code-signed yet, so Windows SmartScreen will warn you: click **More info**, then **Run anyway**. No admin rights are needed.
             2. In MTG Arena, open **Options → Account** and check **Detailed Logs (Plugin Support)**, then restart Arena.
             3. Start **MTGA Draft Overlay**. The first launch takes a minute while it downloads 17Lands data for current sets. Join a draft and the overlay follows it automatically.
 
             Based on [unrealities/MTGA_Draft_17Lands](https://github.com/unrealities/MTGA_Draft_17Lands) (MIT License), with a new React/Tauri interface.
-          files: overlay/src-tauri/target/release/bundle/nsis/*.exe
+          files: |
+            release/*.exe
+            release/latest.json

@@ -67,13 +67,34 @@ fn spawn_bridge(app: &AppHandle) -> Result<Bridge, Box<dyn std::error::Error>> {
   Ok(Bridge::Sidecar(child))
 }
 
+/// Stops the engine so an update can replace its executable. The packaged engine
+/// re-executes itself as a child that exits once its stdin closes, so wait for it.
+#[tauri::command]
+async fn stop_bridge(state: tauri::State<'_, BridgeState>) -> Result<(), String> {
+  let Some(bridge) = state.0.lock().unwrap().take() else {
+    return Ok(());
+  };
+  bridge.kill();
+  for _ in 0..50 {
+    if !bridge_running() {
+      break;
+    }
+    std::thread::sleep(Duration::from_millis(100));
+  }
+  std::thread::sleep(Duration::from_millis(500));
+  Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let app = tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_clipboard_manager::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_process::init())
     .manage(BridgeState(Mutex::new(None)))
+    .invoke_handler(tauri::generate_handler![stop_bridge])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

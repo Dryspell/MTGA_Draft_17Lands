@@ -1,5 +1,6 @@
 {
   "bundle": {
-    "externalBin": ["binaries/mtga-bridge"]
+    "externalBin": ["binaries/mtga-bridge"],
+    "createUpdaterArtifacts": true
   }
 }
