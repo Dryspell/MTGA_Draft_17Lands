@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { Card } from './types'
-import { UiContext, type Tab, type UiState } from './ui'
+import { UiContext, storedTab, type Tab, type UiState } from './ui'
 
 export function UiProvider({ children }: { children: ReactNode }) {
-  const [tab, setTabState] = useState<Tab>(() => (localStorage.getItem('tab') as Tab) || 'draft')
+  const [tab, setTabState] = useState<Tab>(() => storedTab(localStorage.getItem('tab')))
   const [mini, setMiniState] = useState(() => localStorage.getItem('mini') === '1')
   const [compare, setCompare] = useState<Card[]>([])
-  const [custom, setCustom] = useState<UiState['custom']>(null)
+  const [compareOpen, setCompareOpen] = useState(false)
   const [builder, setBuilderState] = useState<UiState['builder']>({ variants: [], selected: null, running: false, message: '', error: '', builtFor: null })
   const [sealedId, setSealedId] = useState<string | null>(null)
 
@@ -22,8 +22,8 @@ export function UiProvider({ children }: { children: ReactNode }) {
   const setBuilder = useCallback((update: Partial<UiState['builder']>) => setBuilderState((b) => ({ ...b, ...update })), [])
 
   const value = useMemo(
-    () => ({ tab, setTab, mini, setMini, compare, addCompare, setCompare, custom, setCustom, builder, setBuilder, sealedId, setSealedId }),
-    [tab, setTab, mini, setMini, compare, addCompare, custom, builder, setBuilder, sealedId],
+    () => ({ tab, setTab, mini, setMini, compare, addCompare, setCompare, compareOpen, setCompareOpen, builder, setBuilder, sealedId, setSealedId }),
+    [tab, setTab, mini, setMini, compare, addCompare, compareOpen, builder, setBuilder, sealedId],
   )
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>
 }

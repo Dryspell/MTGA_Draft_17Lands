@@ -50,6 +50,8 @@ interface Props {
   extraFields?: string[]
   onRowClick?: (card: Card) => void
   onRowDoubleClick?: (card: Card) => void
+  /** Makes rows draggable. */
+  onRowDragStart?: (card: Card, e: DragEvent) => void
   rowTitle?: string
   empty?: ReactNode
   toolbar?: ReactNode
@@ -58,7 +60,7 @@ interface Props {
 
 export function CardTable({
   viewId, cards, arch: archProp, pickedNames, highlightBest, showReasons, extraFields = [],
-  onRowClick, onRowDoubleClick, rowTitle, empty, toolbar, className = '',
+  onRowClick, onRowDoubleClick, onRowDragStart, rowTitle, empty, toolbar, className = '',
 }: Props) {
   const { config, snapshot, meta, patchSettings } = useApp()
   const fmt = useFormat()
@@ -155,6 +157,7 @@ export function CardTable({
               showReasons={showReasons}
               onClick={onRowClick}
               onDoubleClick={onRowDoubleClick}
+              onDragStart={onRowDragStart}
               title={rowTitle}
               tierOptions={tierOptions}
             />
@@ -166,10 +169,11 @@ export function CardTable({
 }
 
 function Row({
-  card, columns, template, arch, picked, best, strength, showReasons, onClick, onDoubleClick, title, tierOptions,
+  card, columns, template, arch, picked, best, strength, showReasons, onClick, onDoubleClick, onDragStart, title, tierOptions,
 }: {
   card: Card; columns: string[]; template: string; arch: string; picked?: boolean; best?: boolean; strength: number
-  showReasons?: boolean; onClick?: (c: Card) => void; onDoubleClick?: (c: Card) => void; title?: string; tierOptions: Record<string, string>
+  showReasons?: boolean; onClick?: (c: Card) => void; onDoubleClick?: (c: Card) => void
+  onDragStart?: (c: Card, e: DragEvent) => void; title?: string; tierOptions: Record<string, string>
 }) {
   const fmt = useFormat()
   const { meta } = useApp()
@@ -245,6 +249,8 @@ function Row({
       {...props}
       onClick={onClick && (() => onClick(card))}
       onDoubleClick={onDoubleClick && (() => onDoubleClick(card))}
+      draggable={!!onDragStart}
+      onDragStart={(e) => { props.onDragStart(); onDragStart?.(card, e) }}
       title={title}
       style={{ gridTemplateColumns: template, ...tint }}
       className={`grid items-center gap-x-1.5 rounded-md py-1 pr-1 text-[12px] transition-colors ${tone} ${onClick || onDoubleClick ? 'cursor-pointer' : ''}`}

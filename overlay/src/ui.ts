@@ -3,7 +3,15 @@ import type { Card, DeckVariant } from './types'
 import { useApp } from './store'
 import type { FormatContext } from './lib/cards'
 
-export type Tab = 'draft' | 'pool' | 'builder' | 'custom' | 'sealed' | 'compare' | 'tiers' | 'datasets' | 'settings'
+export type Tab = 'draft' | 'deck' | 'data' | 'settings'
+
+const LEGACY_TABS: Record<string, Tab> = { pool: 'deck', builder: 'deck', custom: 'deck', sealed: 'deck', tiers: 'data', datasets: 'data', compare: 'draft' }
+
+export function storedTab(value: string | null): Tab {
+  if (!value) return 'draft'
+  if (value in LEGACY_TABS) return LEGACY_TABS[value]
+  return ['draft', 'deck', 'data', 'settings'].includes(value) ? (value as Tab) : 'draft'
+}
 
 export interface UiState {
   tab: Tab
@@ -13,10 +21,12 @@ export interface UiState {
   compare: Card[]
   addCompare: (card: Card) => void
   setCompare: (cards: Card[]) => void
-  custom: { deck: Card[]; sideboard: Card[] } | null
-  setCustom: (custom: { deck: Card[]; sideboard: Card[] } | null) => void
+  compareOpen: boolean
+  setCompareOpen: (open: boolean) => void
+  /** Suggested builds for the live draft pool (kept across tab switches). */
   builder: { variants: DeckVariant[]; selected: string | null; running: boolean; message: string; error: string; builtFor: string | null }
   setBuilder: (update: Partial<UiState['builder']>) => void
+  /** Practice sealed session shown in the Deck tab instead of the live pool. */
   sealedId: string | null
   setSealedId: (id: string | null) => void
 }

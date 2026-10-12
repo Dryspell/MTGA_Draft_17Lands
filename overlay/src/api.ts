@@ -75,7 +75,7 @@ export const api = {
     post<SealedState>('/api/sealed/practice', { code, mode, text }),
   liveSealed: () => post<SealedState>('/api/sealed/live'),
   sealed: (id: string) => get<SealedState>(`/api/sealed/${id}`),
-  sealedAction: (id: string, body: { op: string; name?: string; new_name?: string; card?: string; count?: number; text?: string }) =>
+  sealedAction: (id: string, body: { op: string; name?: string; new_name?: string; card?: string; count?: number; text?: string; cards?: DeckEntry[] }) =>
     post<SealedState>(`/api/sealed/${id}/action`, body),
   sealedShells: (id: string) => post<Job<SealedState>>(`/api/sealed/${id}/shells`),
   sealedExport: (id: string, target: 'mtga' | 'sealeddeck') =>

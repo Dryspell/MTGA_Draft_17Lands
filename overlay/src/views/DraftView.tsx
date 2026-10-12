@@ -26,7 +26,7 @@ export function DraftView() {
   if (!snapshot) return <Empty title="Connecting to the draft engine…" />
   if (!snapshot.hasDatasets) {
     return (
-      <Empty title="No 17Lands datasets yet" action={<Button variant="primary" onClick={() => setTab('datasets')}>Open Datasets</Button>}>
+      <Empty title="No 17Lands datasets yet" action={<Button variant="primary" onClick={() => setTab('data')}>Open Datasets</Button>}>
         Download a dataset for the set you're drafting to see win rates and pick advice.
       </Empty>
     )

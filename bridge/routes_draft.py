@@ -38,7 +38,7 @@ def meta():
         "uiSizes": list(constants.UI_SIZE_DICT.keys()),
         "limitedTypes": constants.LIMITED_TYPE_LIST,
         "userGroups": constants.LIMITED_GROUPS_LIST,
-        "timePeriods": [constants.TIME_PERIOD_DEFAULT_LABEL, *constants.TIME_PERIOD_LABELS],
+        "timePeriods": list(dict.fromkeys([constants.TIME_PERIOD_DEFAULT_LABEL, *constants.TIME_PERIOD_LABELS])),
         "basicLands": constants.BASIC_LANDS,
     }
 

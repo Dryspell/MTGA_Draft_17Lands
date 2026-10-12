@@ -175,7 +175,7 @@ export function PracticeDialog({ mode, onClose }: { mode: 'generate' | 'import';
       const text = mode === 'import' ? await readClipboard() : ''
       const session = await api.practiceSealed(code, mode, text)
       setSealedId(session.id)
-      setTab('sealed')
+      setTab('deck')
       onClose()
     } catch (e) {
       toast((e as Error).message, 'error')

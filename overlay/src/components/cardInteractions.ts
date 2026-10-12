@@ -14,6 +14,7 @@ export function useCardProps(card: Card) {
   return {
     onMouseEnter: (e: MouseEvent<HTMLElement>) => hover(card, e.currentTarget),
     onMouseLeave: () => hover(null),
+    onDragStart: () => hover(null),
     onContextMenu: (e: MouseEvent) => menu(card, e),
   }
 }

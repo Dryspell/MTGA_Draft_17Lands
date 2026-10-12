@@ -2,18 +2,26 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { useApp } from '../store'
 import { useUi } from '../ui'
-import { CardTable } from '../components/CardTable'
-import { Button, Empty, Input } from '../components/primitives'
+import { CardTable } from './CardTable'
+import { Button, Empty, Input } from './primitives'
 
-export function CompareView() {
+/** Card comparison panel that slides over whichever tab is open. */
+export function CompareDrawer() {
   const { toast, snapshot } = useApp()
-  const { compare, setCompare } = useUi()
+  const { compare, setCompare, compareOpen, setCompareOpen } = useUi()
   const [names, setNames] = useState<string[]>([])
   const [query, setQuery] = useState('')
 
   useEffect(() => {
-    api.cardNames().then(setNames).catch(() => {})
-  }, [snapshot?.dataset])
+    if (compareOpen) api.cardNames().then(setNames).catch(() => {})
+  }, [compareOpen, snapshot?.dataset])
+
+  useEffect(() => {
+    if (!compareOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setCompareOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [compareOpen, setCompareOpen])
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -30,7 +38,16 @@ export function CompareView() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
+    <aside
+      aria-hidden={!compareOpen}
+      className={`absolute inset-y-0 right-0 z-30 flex w-[min(440px,100%)] flex-col gap-2 border-l border-line bg-surface p-3 shadow-2xl backdrop-blur transition-transform duration-200 ${
+        compareOpen ? 'translate-x-0' : 'pointer-events-none translate-x-full'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <h2 className="flex-1 text-[11px] font-semibold tracking-wider text-stone-400 uppercase">Compare cards{compare.length ? ` (${compare.length})` : ''}</h2>
+        <button onClick={() => setCompareOpen(false)} className="text-stone-500 hover:text-white" title="Close (Esc)">✕</button>
+      </div>
       <div className="relative flex items-center gap-1.5">
         <Input
           value={query}
@@ -38,6 +55,7 @@ export function CompareView() {
           onKeyDown={(e) => e.key === 'Enter' && add(query)}
           placeholder="Search a card to compare…"
           className="flex-1"
+          tabIndex={compareOpen ? 0 : -1}
         />
         <Button onClick={() => add(query)} disabled={!query.trim()}>Add</Button>
         <Button variant="ghost" onClick={() => setCompare([])} disabled={!compare.length}>Clear</Button>
@@ -54,6 +72,6 @@ export function CompareView() {
       ) : (
         <Empty title="Nothing to compare yet">Search for cards above, or right-click any card and choose Compare.</Empty>
       )}
-    </div>
+    </aside>
   )
 }

@@ -10,26 +10,17 @@ import { TitleBar } from './components/TitleBar'
 import { TopBar } from './components/TopBar'
 import { Rail } from './components/Rail'
 import { Toasts } from './components/Toasts'
+import { CompareDrawer } from './components/CompareDrawer'
 import { DraftView } from './views/DraftView'
-import { PoolView } from './views/PoolView'
-import { DeckBuilderView } from './views/DeckBuilderView'
-import { CustomDeckView } from './views/CustomDeckView'
-import { SealedView } from './views/SealedView'
-import { CompareView } from './views/CompareView'
-import { TierListsView } from './views/TierListsView'
-import { DatasetsView } from './views/DatasetsView'
+import { DeckView } from './views/DeckView'
+import { DataView } from './views/DataView'
 import { SettingsView } from './views/SettingsView'
 import { MiniView } from './views/MiniView'
 
 const VIEWS = {
   draft: DraftView,
-  pool: PoolView,
-  builder: DeckBuilderView,
-  custom: CustomDeckView,
-  sealed: SealedView,
-  compare: CompareView,
-  tiers: TierListsView,
-  datasets: DatasetsView,
+  deck: DeckView,
+  data: DataView,
   settings: SettingsView,
 }
 
@@ -83,11 +74,12 @@ function Shell() {
       ) : (
         <div className="flex min-h-0 flex-1">
           <Rail />
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
             <TopBar />
             <main className="min-h-0 flex-1 overflow-y-auto p-3">
               <View />
             </main>
+            <CompareDrawer />
           </div>
         </div>
       )}

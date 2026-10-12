@@ -1,5 +1,5 @@
 import type { Card, DeckEntry } from '../types'
-import { COLORS, basicCard, isCreature, isLand, sortByCmc } from './cards'
+import { COLORS, isCreature, isLand } from './cards'
 
 export interface DeckSummary {
   total: number
@@ -39,23 +39,6 @@ export function summarize(deck: Card[]): DeckSummary {
 }
 
 export const count = (cards: Card[]) => cards.reduce((n, c) => n + c.count, 0)
-
-/** Moves one copy of a card between two stacked lists. */
-export function moveOne(from: Card[], to: Card[], name: string): [Card[], Card[]] {
-  const src = from.find((c) => c.name === name)
-  if (!src) return [from, to]
-  const nextFrom = src.count > 1 ? from.map((c) => (c === src ? { ...c, count: c.count - 1 } : c)) : from.filter((c) => c !== src)
-  const dst = to.find((c) => c.name === name)
-  const nextTo = dst ? to.map((c) => (c === dst ? { ...c, count: c.count + 1 } : c)) : sortByCmc([...to, { ...src, count: 1 }])
-  return [nextFrom, nextTo]
-}
-
-export function addBasic(deck: Card[], name: string, delta: number): Card[] {
-  const existing = deck.find((c) => c.name === name)
-  if (!existing) return delta > 0 ? [...deck, basicCard(name, delta)] : deck
-  const n = existing.count + delta
-  return n <= 0 ? deck.filter((c) => c !== existing) : deck.map((c) => (c === existing ? { ...c, count: n } : c))
-}
 
 export const entries = (cards: Card[]): DeckEntry[] => cards.map((c) => ({ name: c.name, count: c.count }))
 

@@ -29,21 +29,12 @@ function useDraftRecord(draftId: string | undefined) {
 
 /** Port of DraftRecapScreen: the post-draft summary. */
 export function RecapView() {
-  const { snapshot, meta, toast } = useApp()
+  const { snapshot, meta } = useApp()
   const { setTab, setSealedId } = useUi()
+  const openDeck = () => { setSealedId(null); setTab('deck') }
   const recap = snapshot?.recap
   const record = useDraftRecord(recap ? snapshot?.draftId : undefined)
   if (!snapshot || !recap) return null
-
-  const openSealed = async () => {
-    try {
-      const s = await api.liveSealed()
-      setSealedId(s.id)
-      setTab('sealed')
-    } catch (e) {
-      toast((e as Error).message, 'error')
-    }
-  }
 
   const [letter, ...rest] = recap.grade.split(' ')
   const verdict = rest.join(' ').replace(/[()]/g, '')
@@ -66,8 +57,7 @@ export function RecapView() {
           )}
         </div>
         <div className="flex flex-col gap-1.5">
-          <Button variant="primary" onClick={() => setTab('builder')}>Build deck</Button>
-          {snapshot.isSealed && <Button onClick={openSealed}>Open Sealed Studio</Button>}
+          <Button variant="primary" onClick={openDeck}>Build deck</Button>
         </div>
       </div>
 

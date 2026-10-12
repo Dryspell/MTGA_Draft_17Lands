@@ -139,10 +139,10 @@ function Row({ label, value, good }: { label: string; value: string; good?: bool
 }
 
 function ContextMenu({ card, x, y, close }: Menu & { close: () => void }) {
-  const { addCompare, setTab } = useUi()
+  const { addCompare, setCompareOpen } = useUi()
   const { toast } = useApp()
   const items: [string, () => void][] = [
-    [`Compare "${card.name}"`, () => { addCompare(card); setTab('compare') }],
+    [`Compare "${card.name}"`, () => { addCompare(card); setCompareOpen(true) }],
     ['Copy name', () => copyText(card.name).then(() => toast('Copied card name', 'success'))],
     ['View on Scryfall', () => openUrl(scryfallUrl(card.name))],
   ]
