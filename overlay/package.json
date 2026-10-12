@@ -9,7 +9,9 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "tauri": "tauri",
-    "bundle": "tauri build --config src-tauri/tauri.bundle.conf.json"
+    "bundle": "tauri build --config src-tauri/tauri.bundle.conf.json",
+    "sidecar": "python ../bridge/build.py",
+    "release": "npm run sidecar && npm run bundle"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
