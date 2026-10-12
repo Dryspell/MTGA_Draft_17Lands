@@ -1,0 +1,3 @@
+# Test-only dependencies for tests/bridge (FastAPI's TestClient).
+-r requirements.txt
+httpx2

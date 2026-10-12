@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from src import constants
 from src.configuration import Configuration, write_configuration
@@ -66,7 +66,11 @@ async def patch_config(body: Dict[str, Dict[str, Any]]):
         if section not in merged or not isinstance(values, dict):
             raise HTTPException(400, f"Unknown section: {section}")
         merged[section].update(values)
-    validated = Configuration.model_validate(merged)
+    try:
+        validated = Configuration.model_validate(merged)
+    except ValidationError as e:
+        problems = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
+        raise HTTPException(422, f"Invalid settings: {problems}")
 
     settings_changes = body.get("settings", {})
     if "arena_log_location" in settings_changes:
