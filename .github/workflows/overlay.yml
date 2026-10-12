@@ -10,12 +10,16 @@ on:
       - "bridge/**"
       - "src/**"
       - "tests/bridge/**"
+      - "pyproject.toml"
+      - "poetry.lock"
       - ".github/workflows/overlay.yml"
   pull_request:
     paths:
       - "overlay/**"
       - "bridge/**"
       - "tests/bridge/**"
+      - "pyproject.toml"
+      - "poetry.lock"
       - ".github/workflows/overlay.yml"
 
 permissions:
