@@ -62,6 +62,10 @@ async def _pump():
                 await state.set_status(msg["status"])
             elif msg == "REFRESH":
                 do_refresh = True
+                # The orchestrator loads datasets synchronously before queueing
+                # REFRESH, so a pending "Loading..." status is now stale.
+                if state.status.startswith("Loading"):
+                    await state.set_status("Ready")
         if do_refresh:
             try:
                 await refresh()

@@ -123,6 +123,7 @@ export interface Settings {
   result_format: string
   ui_size: string
   theme_palette: string
+  theme: string
   always_on_top: boolean
   card_colors_enabled: boolean
   draft_log_enabled: boolean

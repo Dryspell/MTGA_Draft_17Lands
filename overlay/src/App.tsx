@@ -40,7 +40,10 @@ function useWindowEffects() {
   const settings = config?.settings
   const firstMini = useRef(true)
 
-  useEffect(() => applyTheme(settings?.theme_palette, settings?.ui_size), [settings?.theme_palette, settings?.ui_size])
+  useEffect(
+    () => applyTheme(settings?.theme_palette, settings?.ui_size, settings?.theme === 'Light'),
+    [settings?.theme_palette, settings?.ui_size, settings?.theme],
+  )
 
   const onTop = settings?.always_on_top
   useEffect(() => {

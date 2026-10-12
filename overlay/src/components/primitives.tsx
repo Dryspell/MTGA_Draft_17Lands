@@ -4,7 +4,7 @@ import { useApp } from '../store'
 type Variant = 'primary' | 'ghost' | 'subtle' | 'danger'
 
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-accent/90 text-white hover:bg-accent',
+  primary: 'bg-accent/90 text-[#fff] hover:bg-accent',
   subtle: 'bg-white/[0.06] text-stone-200 hover:bg-white/10',
   ghost: 'text-stone-400 hover:bg-white/10 hover:text-white',
   danger: 'bg-red-500/15 text-red-300 hover:bg-red-500/25',
@@ -54,7 +54,7 @@ export function Check({ checked, onChange, label, hint }: { checked: boolean; on
         }`}
       >
         {checked && (
-          <svg viewBox="0 0 12 12" className="size-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg viewBox="0 0 12 12" className="size-2.5 text-[#fff]" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="m2.5 6 2.5 2.5 4.5-5" />
           </svg>
         )}

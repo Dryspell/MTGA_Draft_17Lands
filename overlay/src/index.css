@@ -17,13 +17,50 @@
   --color-accent: #8b7cf6;
 }
 
+/* Light mode flips the neutral scale so the dark-first utility classes keep their contrast. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-white: #1c1917;
+  --color-stone-50: #0c0a09;
+  --color-stone-100: #1c1917;
+  --color-stone-200: #292524;
+  --color-stone-300: #44403c;
+  --color-stone-400: #57534e;
+  --color-stone-500: #78716c;
+  --color-stone-600: #a8a29e;
+  --color-stone-700: #d6d3d1;
+  --color-stone-800: #e7e5e4;
+  --color-stone-900: #f5f5f4;
+  --color-stone-950: #fafaf9;
+  --color-emerald-100: #064e3b;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-emerald-900: #d1fae5;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-red-100: #7f1d1d;
+  --color-red-300: #b91c1c;
+  --color-red-950: #fee2e2;
+  --color-sky-300: #0369a1;
+  --color-sky-400: #0284c7;
+  --color-yellow-400: #ca8a04;
+  --color-orange-400: #ea580c;
+  --color-mana-w: #d6c48a;
+  --color-panel: rgb(0 0 0 / 0.035);
+  --color-line: rgb(0 0 0 / 0.1);
+}
+
+:root[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: rgb(0 0 0 / 0.18);
+}
+
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
   background: transparent;
-  color: #e7e5e4;
+  color: var(--color-stone-200, #e7e5e4);
   font-family: var(--font-sans);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;

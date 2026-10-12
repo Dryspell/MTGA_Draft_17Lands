@@ -48,9 +48,15 @@ export function SettingsView() {
           </Select>
         </Row>
         <Row label="Theme">
-          <Select value={PALETTES[s.theme_palette] ? s.theme_palette : 'Neutral'} onChange={(e) => patchSettings({ theme_palette: e.target.value })}>
-            {Object.keys(PALETTES).map((p) => <option key={p}>{p}</option>)}
-          </Select>
+          <div className="flex gap-1.5">
+            <Select value={s.theme === 'Light' ? 'Light' : 'Dark'} onChange={(e) => patchSettings({ theme: e.target.value })}>
+              <option>Dark</option>
+              <option>Light</option>
+            </Select>
+            <Select value={PALETTES[s.theme_palette] ? s.theme_palette : 'Neutral'} onChange={(e) => patchSettings({ theme_palette: e.target.value })}>
+              {Object.keys(PALETTES).map((p) => <option key={p}>{p}</option>)}
+            </Select>
+          </div>
         </Row>
         <Row label="Card images in tooltips">
           <Check checked={config.features.images_enabled !== false} onChange={(v) => patchConfig({ features: { images_enabled: v } })} label="" />
