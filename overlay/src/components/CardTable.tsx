@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import type { Card } from '../types'
 import { useApp } from '../store'
 import { useFormat } from '../ui'
@@ -108,6 +108,7 @@ export function CardTable({
     })
   }, [cards, sort.column, sort.reverse, arch, tierOptions])
 
+  const headerDrag = useColumnDrag(columns, setColumns)
   const template = columns.map((c) => (c === 'name' ? 'minmax(110px,1fr)' : WIDTH[c] ?? '42px')).join(' ')
   const label = (f: string) => (f in tierOptions ? tierOptions[f] : SHORT[f] ?? f.toUpperCase())
 
@@ -127,9 +128,10 @@ export function CardTable({
         {columns.map((c) => (
           <button
             key={c}
+            {...headerDrag.props(c)}
             onClick={() => setSort(c)}
-            title={c in tierOptions ? tierOptions[c] : meta?.columnLabels[c] ?? EXTRA_LABELS[c]}
-            className={`truncate hover:text-stone-200 ${c === 'name' ? 'pl-2 text-left' : 'text-right'} ${sort.column === c ? 'text-stone-200' : ''}`}
+            title={`${c in tierOptions ? tierOptions[c] : meta?.columnLabels[c] ?? EXTRA_LABELS[c] ?? ''}${c === 'name' ? '' : ' (drag to reorder)'}`}
+            className={`truncate rounded-sm hover:text-stone-200 ${c === 'name' ? 'pl-2 text-left' : 'text-right'} ${sort.column === c ? 'text-stone-200' : ''} ${headerDrag.style(c)}`}
           >
             {label(c)}
             {sort.column === c && <span className="ml-0.5">{sort.reverse ? '▾' : '▴'}</span>}
@@ -254,6 +256,49 @@ function Row({
   )
 }
 
+/** The name column is pinned first; everything else can be dragged around it. */
+function moveColumn(columns: string[], from: string, to: string): string[] {
+  if (from === to || from === 'name' || to === 'name') return columns
+  const next = columns.filter((c) => c !== from)
+  const at = next.indexOf(to)
+  next.splice(columns.indexOf(from) < columns.indexOf(to) ? at + 1 : at, 0, from)
+  return next
+}
+
+/** HTML5 drag handlers for reordering columns, shared by the header and the picker. */
+function useColumnDrag(columns: string[], onChange: (cols: string[]) => void) {
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  const props = (f: string) =>
+    f === 'name'
+      ? {}
+      : {
+          draggable: true,
+          onDragStart: (e: DragEvent) => {
+            e.dataTransfer.effectAllowed = 'move'
+            e.dataTransfer.setData('text/plain', f)
+            setDragging(f)
+          },
+          onDragOver: (e: DragEvent) => {
+            if (!dragging) return
+            e.preventDefault()
+            setOver(f)
+          },
+          onDrop: (e: DragEvent) => {
+            e.preventDefault()
+            if (dragging) onChange(moveColumn(columns, dragging, f))
+            setDragging(null)
+            setOver(null)
+          },
+          onDragEnd: () => {
+            setDragging(null)
+            setOver(null)
+          },
+        }
+  const style = (f: string) => (dragging === f ? 'opacity-40' : over === f && dragging ? 'bg-accent/20' : '')
+  return { props, style }
+}
+
 function ColumnPicker({ columns, fields, onChange }: { columns: string[]; fields: [string, string][]; onChange: (cols: string[]) => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -268,14 +313,7 @@ function ColumnPicker({ columns, fields, onChange }: { columns: string[]; fields
     if (columns.includes(f)) onChange(columns.filter((c) => c !== f))
     else if (columns.length < MAX_COLUMNS) onChange([...columns, f])
   }
-  const move = (f: string, d: number) => {
-    const i = columns.indexOf(f)
-    const j = i + d
-    if (j < 1 || j >= columns.length) return
-    const next = [...columns]
-    ;[next[i], next[j]] = [next[j], next[i]]
-    onChange(next)
-  }
+  const drag = useColumnDrag(columns, onChange)
 
   return (
     <div ref={ref} className="relative">
@@ -286,10 +324,9 @@ function ColumnPicker({ columns, fields, onChange }: { columns: string[]; fields
         <div className="absolute top-full right-0 z-30 mt-1 w-64 rounded-lg bg-stone-800 p-2 shadow-xl ring-1 ring-white/10">
           <div className="mb-1 px-1 text-[10px] font-semibold tracking-wider text-stone-500 uppercase">Shown ({columns.length}/{MAX_COLUMNS})</div>
           {columns.slice(1).map((f) => (
-            <div key={f} className="flex items-center gap-1 rounded px-1 py-0.5 text-[12px] hover:bg-white/5">
+            <div key={f} {...drag.props(f)} className={`flex cursor-grab items-center gap-1 rounded px-1 py-0.5 text-[12px] hover:bg-white/5 ${drag.style(f)}`}>
+              <span className="text-stone-600">⠿</span>
               <span className="flex-1 truncate text-stone-200">{fields.find(([k]) => k === f)?.[1] ?? f}</span>
-              <button onClick={() => move(f, -1)} className="px-1 text-stone-500 hover:text-white">↑</button>
-              <button onClick={() => move(f, 1)} className="px-1 text-stone-500 hover:text-white">↓</button>
               <button onClick={() => toggle(f)} className="px-1 text-stone-500 hover:text-red-300">✕</button>
             </div>
           ))}
