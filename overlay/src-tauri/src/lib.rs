@@ -71,6 +71,8 @@ fn spawn_bridge(app: &AppHandle) -> Result<Bridge, Box<dyn std::error::Error>> {
 pub fn run() {
   let app = tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
+    .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_clipboard_manager::init())
     .manage(BridgeState(Mutex::new(None)))
     .setup(|app| {
       if cfg!(debug_assertions) {

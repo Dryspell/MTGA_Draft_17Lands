@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from src import constants
 
-STAT_FIELDS = ("gihwr", "ohwr", "gpwr", "gnswr", "gdwr", "iwd", "alsa", "ata", "gih", "ngp", "ngoh", "ngd", "ngnd")
+STAT_FIELDS = ("gihwr", "ohwr", "gpwr", "gnswr", "gdwr", "iwd", "alsa", "ata", "gih", "ngp", "ngoh", "ngd", "ngnd", "samples")
 
 
 def deck_color_stats(card: Dict) -> Dict[str, Dict[str, float]]:

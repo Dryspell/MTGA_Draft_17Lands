@@ -1,49 +1,104 @@
-import { useState } from 'react'
-import { useBridge } from './bridge'
-import { Header } from './components/Header'
-import { PackView, Empty } from './components/PackView'
-import { PoolView } from './components/PoolView'
-import { PreviewProvider } from './components/CardPreview'
+import { useEffect, useRef } from 'react'
+import { AppProvider, useApp } from './store'
+import { UiProvider, useUi } from './ui'
+import { applyTheme } from './lib/theme'
+import { inTauri, setAlwaysOnTop, setWindowSize, windowSize } from './lib/platform'
+import { CardInteractionsProvider } from './components/CardHover'
+import { TitleBar } from './components/TitleBar'
+import { TopBar } from './components/TopBar'
+import { Rail } from './components/Rail'
+import { Toasts } from './components/Toasts'
+import { DraftView } from './views/DraftView'
+import { PoolView } from './views/PoolView'
+import { DeckBuilderView } from './views/DeckBuilderView'
+import { CustomDeckView } from './views/CustomDeckView'
+import { SealedView } from './views/SealedView'
+import { CompareView } from './views/CompareView'
+import { TierListsView } from './views/TierListsView'
+import { DatasetsView } from './views/DatasetsView'
+import { SettingsView } from './views/SettingsView'
+import { MiniView } from './views/MiniView'
 
-type Tab = 'pack' | 'pool'
+const VIEWS = {
+  draft: DraftView,
+  pool: PoolView,
+  builder: DeckBuilderView,
+  custom: CustomDeckView,
+  sealed: SealedView,
+  compare: CompareView,
+  tiers: TierListsView,
+  datasets: DatasetsView,
+  settings: SettingsView,
+}
 
-export default function App() {
-  const { connected, status, snapshot } = useBridge()
-  const [tab, setTab] = useState<Tab>('pack')
+const MINI_SIZE = { width: 340, height: 560 }
+const FULL_SIZE = { width: 900, height: 780 }
+
+function useWindowEffects() {
+  const { config } = useApp()
+  const { mini } = useUi()
+  const settings = config?.settings
+  const firstMini = useRef(true)
+
+  useEffect(() => applyTheme(settings?.theme_palette, settings?.ui_size), [settings?.theme_palette, settings?.ui_size])
+
+  const onTop = settings?.always_on_top
+  useEffect(() => {
+    if (onTop !== undefined) setAlwaysOnTop(onTop)
+  }, [onTop])
+
+  useEffect(() => {
+    if (!inTauri) return
+    if (firstMini.current) {
+      firstMini.current = false
+      return
+    }
+    const key = mini ? 'size-full' : 'size-mini'
+    windowSize().then((size) => {
+      if (size) localStorage.setItem(key, JSON.stringify(size))
+      const saved = localStorage.getItem(mini ? 'size-mini' : 'size-full')
+      const target = saved ? JSON.parse(saved) : mini ? MINI_SIZE : FULL_SIZE
+      setWindowSize(target.width, target.height, mini ? 260 : 380, mini ? 220 : 320)
+    })
+  }, [mini])
+}
+
+function Shell() {
+  const { tab, mini } = useUi()
+  useWindowEffects()
+  const View = VIEWS[tab] ?? DraftView
 
   return (
-    <PreviewProvider>
-      <div className="flex h-full flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl backdrop-blur-md">
-        <Header snapshot={snapshot} connected={connected} status={status} />
-
-        <nav className="flex gap-1 px-3 pt-2">
-          {(['pack', 'pool'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded-md px-2.5 py-1 text-[12px] capitalize transition-colors ${
-                tab === t ? 'bg-white/10 text-white' : 'text-stone-400 hover:text-stone-200'
-              }`}
-            >
-              {t}
-              {t === 'pack' && snapshot?.packCards.length ? (
-                <span className="ml-1 text-stone-500">{snapshot.packCards.length}</span>
-              ) : null}
-              {t === 'pool' && snapshot?.poolSize ? <span className="ml-1 text-stone-500">{snapshot.poolSize}</span> : null}
-            </button>
-          ))}
-        </nav>
-
-        <main className="flex-1 overflow-y-auto px-2 py-2">
-          {!snapshot ? (
-            <Empty>{status}</Empty>
-          ) : tab === 'pack' ? (
-            <PackView cards={snapshot.packCards} missing={snapshot.missingCards} />
-          ) : (
-            <PoolView snapshot={snapshot} />
-          )}
+    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-surface ring-1 ring-white/10">
+      <TitleBar />
+      {mini ? (
+        <main className="min-h-0 flex-1 overflow-hidden p-2">
+          <MiniView />
         </main>
-      </div>
-    </PreviewProvider>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <Rail />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <TopBar />
+            <main className="min-h-0 flex-1 overflow-y-auto p-3">
+              <View />
+            </main>
+          </div>
+        </div>
+      )}
+      <Toasts />
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <AppProvider>
+      <UiProvider>
+        <CardInteractionsProvider>
+          <Shell />
+        </CardInteractionsProvider>
+      </UiProvider>
+    </AppProvider>
   )
 }
