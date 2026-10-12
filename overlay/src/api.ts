@@ -48,6 +48,8 @@ export const api = {
   cardNames: () => get<string[]>('/api/cards/names'),
   lookupCards: (names: string[]) => post<Card[]>('/api/cards/lookup', { names }),
   openUrl: (url: string) => post('/api/open-url', { url }),
+  draftRecord: (draftId: string) =>
+    get<{ wins?: number; losses?: number; url?: string }>(`/api/draft-record?draft_id=${encodeURIComponent(draftId)}`),
 
   datasets: () =>
     get<{ files: DatasetFile[]; sets: SetOption[]; excluded: string[]; liveSets: string[] }>('/api/datasets'),

@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../api'
+import { openUrl } from '../lib/platform'
 import { useApp } from '../store'
 import { useUi } from '../ui'
 import type { PickEntry, RecapEntry } from '../types'
@@ -7,11 +8,31 @@ import { gradeTone, tagLabel } from '../lib/cards'
 import { TypeBreakdown } from '../components/Charts'
 import { Button, Section } from '../components/primitives'
 
+type DraftRecord = Awaited<ReturnType<typeof api.draftRecord>>
+
+/** The user's actual match record, if they track drafts with the 17Lands client. */
+function useDraftRecord(draftId: string | undefined) {
+  const [record, setRecord] = useState<{ id: string; data: DraftRecord } | null>(null)
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    api.draftRecord(draftId).then(
+      (data) => !cancelled && setRecord({ id: draftId, data }),
+      () => {},
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [draftId])
+  return record && record.id === draftId ? record.data : null
+}
+
 /** Port of DraftRecapScreen: the post-draft summary. */
 export function RecapView() {
   const { snapshot, meta, toast } = useApp()
   const { setTab, setSealedId } = useUi()
   const recap = snapshot?.recap
+  const record = useDraftRecord(recap ? snapshot?.draftId : undefined)
   if (!snapshot || !recap) return null
 
   const openSealed = async () => {
@@ -37,6 +58,12 @@ export function RecapView() {
           <div className="text-[12px] text-stone-400">
             Top 23 average {recap.top23Avg.toFixed(1)}% vs format {recap.formatAvg.toFixed(1)}%
           </div>
+          {record?.url && (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px]">
+              <span className="font-semibold text-emerald-300">17Lands record: {record.wins}–{record.losses}</span>
+              <button onClick={() => openUrl(record.url!)} className="text-accent hover:underline">View draft on 17Lands ↗</button>
+            </div>
+          )}
         </div>
         <div className="flex flex-col gap-1.5">
           <Button variant="primary" onClick={() => setTab('builder')}>Build deck</Button>
