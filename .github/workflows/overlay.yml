@@ -1,0 +1,97 @@
+name: Overlay
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["react-overlay"]
+    tags: ["overlay-v*"]
+    paths:
+      - "overlay/**"
+      - "bridge/**"
+      - "src/**"
+      - "tests/bridge/**"
+      - ".github/workflows/overlay.yml"
+  pull_request:
+    paths:
+      - "overlay/**"
+      - "bridge/**"
+      - "tests/bridge/**"
+      - ".github/workflows/overlay.yml"
+
+permissions:
+  contents: write # creating releases for overlay-v* tags
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: overlay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: overlay/package-lock.json
+      - run: npm ci
+      - run: npm run lint -- --deny-warnings
+      - run: npm run build
+
+  bridge:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Poetry
+        run: python -m pip install poetry
+      - name: Install dependencies
+        run: |
+          poetry install --no-interaction
+          poetry run pip install -r bridge/requirements-dev.txt
+      - name: Test bridge
+        run: poetry run pytest tests/bridge -q
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/overlay-v')
+    needs: [frontend, bridge]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tag matches package.json
+        shell: bash
+        run: |
+          version=$(node -p "require('./overlay/package.json').version")
+          [ "overlay-v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match package.json $version"; exit 1; }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: overlay/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: overlay/src-tauri
+      - name: Install dependencies
+        run: |
+          python -m pip install poetry
+          poetry install --no-interaction
+          poetry run pip install -r bridge/requirements.txt
+      - name: Build bridge sidecar
+        run: poetry run python bridge/build.py
+      - name: Build installer
+        working-directory: overlay
+        run: |
+          npm ci
+          npm run bundle
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MTGA Draft Overlay ${{ github.ref_name }}
+          generate_release_notes: true
+          files: overlay/src-tauri/target/release/bundle/nsis/*.exe
