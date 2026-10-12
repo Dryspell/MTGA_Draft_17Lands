@@ -1,11 +1,22 @@
+import { useEffect, useState } from 'react'
 import { useApp } from '../store'
 import { useUi } from '../ui'
-import { inTauri, currentWindow } from '../lib/platform'
+import { inTauri, currentWindow, openUrl } from '../lib/platform'
+import { checkForUpdate, type UpdateInfo } from '../lib/update'
 import { SignalDots } from './Charts'
+
+function useUpdate() {
+  const [update, setUpdate] = useState<UpdateInfo | null>(null)
+  useEffect(() => {
+    checkForUpdate().then(setUpdate, () => {})
+  }, [])
+  return update
+}
 
 export function TitleBar() {
   const { snapshot, connected, status, config, patchSettings } = useApp()
   const { mini, setMini } = useUi()
+  const update = useUpdate()
   const pinned = config?.settings.always_on_top ?? true
   const live = !!snapshot && snapshot.pack > 0
   const btn = 'flex size-6 items-center justify-center rounded text-stone-400 hover:bg-white/10 hover:text-white'
@@ -28,6 +39,15 @@ export function TitleBar() {
         {snapshot && !snapshot.isLiveLog && snapshot.logFile && <span className="text-[11px] text-amber-400/80">past draft</span>}
       </div>
       {snapshot && live && <SignalDots signals={snapshot.signals} />}
+      {update && (
+        <button
+          onClick={() => openUrl(update.url)}
+          className="shrink-0 rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/30"
+          title={`Version ${update.version} is available. Click to open the release page.`}
+        >
+          Update {update.version}
+        </button>
+      )}
       <div className="flex items-center">
         <button onClick={() => setMini(!mini)} className={btn} title={mini ? 'Restore full window' : 'Mini overlay mode'}>
           {mini ? '⤢' : '⤡'}

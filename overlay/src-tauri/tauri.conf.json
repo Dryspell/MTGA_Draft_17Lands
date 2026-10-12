@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "MTGA Draft Overlay",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "com.mtgadraft.overlay",
   "build": {
     "frontendDist": "../dist",

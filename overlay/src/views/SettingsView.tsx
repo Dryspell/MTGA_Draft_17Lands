@@ -4,6 +4,7 @@ import { useApp } from '../store'
 import type { Settings } from '../types'
 import { PALETTES } from '../lib/theme'
 import { pickFile, pickFolder } from '../lib/platform'
+import { APP_VERSION } from '../lib/update'
 import { Button, Check, Input, Section, Select } from '../components/primitives'
 
 const TOGGLES: [keyof Settings, string, string?][] = [
@@ -88,7 +89,7 @@ export function SettingsView() {
 
       <div className="flex items-center justify-between">
         <Button variant="ghost" onClick={reset}>Restore defaults</Button>
-        <span className="text-[11px] text-stone-500">Engine v{meta.version}</span>
+        <span className="text-[11px] text-stone-500">Overlay v{APP_VERSION} · Engine v{meta.version}</span>
       </div>
     </div>
   )
