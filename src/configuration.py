@@ -35,9 +35,11 @@ def get_config_path():
     return os.path.join(config_dir, "config.json")
 
 
-# Use local config if it exists (Development mode), otherwise use User Data path
+# Use local config if it exists (Development mode), otherwise use User Data path.
+# An explicit MTGA_DRAFT_TOOL_HOME (set by the overlay) always keeps config in that
+# home so it never shares settings with a separately installed copy of the app.
 LOCAL_CONFIG = os.path.join(BASE_DIR, "config.json")
-if os.path.exists(LOCAL_CONFIG):
+if os.environ.get("MTGA_DRAFT_TOOL_HOME") or os.path.exists(LOCAL_CONFIG):
     CONFIG_FILE = LOCAL_CONFIG
     logger.info(f"Using local configuration file: {CONFIG_FILE}")
 else:

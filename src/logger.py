@@ -5,6 +5,9 @@ import logging.handlers
 
 
 def _get_logger_base_dir():
+    override = os.environ.get("MTGA_DRAFT_TOOL_HOME")
+    if override:
+        return override
     if getattr(sys, "frozen", False):
         if sys.platform == "darwin":
             return os.path.expanduser("~/Library/Application Support/MTGA_Draft_Tool")
