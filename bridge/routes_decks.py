@@ -304,12 +304,25 @@ def _session_view(session_id: str, **extra):
 
 
 def _open_session(session_id: str, raw_pool: List[Dict], metrics, label: str):
-    session = SealedSession.load_session(session_id, raw_pool)
+    entry = state.sealed_sessions.get(session_id)
+    session = entry["session"] if entry else SealedSession.load_session(session_id, raw_pool)
     if not session:
         session = SealedSession(session_id)
-        session.load_pool(raw_pool)
+    # Reloading keeps saved builds and picks up cards drafted since the last open.
+    session.load_pool(raw_pool)
+    _trim_to_pool(session)
     state.sealed_sessions[session_id] = {"session": session, "metrics": metrics, "label": label}
     return _session_view(session_id)
+
+
+def _trim_to_pool(session: SealedSession):
+    for variant in session.variants.values():
+        for name, count in list(variant.main_deck_counts.items()):
+            if name in constants.BASIC_LANDS:
+                continue
+            owned = session._pool_inventory.get(name, 0)
+            if count > owned:
+                variant.remove_card(name, count - owned)
 
 
 @router.get("/sealed/sets")
@@ -409,6 +422,7 @@ class SealedAction(BaseModel):
     card: Optional[str] = None
     count: int = 1
     text: Optional[str] = None
+    cards: Optional[List[DeckEntry]] = None
 
 
 @router.post("/sealed/{session_id}/action")
@@ -451,6 +465,14 @@ def sealed_action(session_id: str, body: SealedAction):
             needed = max(0, 40 - sum(c.get("count", 1) for c in spells) - sum(c.get("count", 1) for c in lands))
             for b in calculate_dynamic_mana_base(spells, lands, colors, forced_count=needed):
                 session.move_to_main(b["name"], 1)
+    elif op == "set":
+        # Fill a build from a card list: a new build when a name is given, else the active one.
+        if body.name:
+            session.create_variant(body.name)
+        session.variants[session.active_variant_name].main_deck_counts.clear()
+        missing = [e.name for e in body.cards or [] if not session.move_to_main(e.name, e.count)]
+        if missing:
+            warning = "Skipped cards not in your pool: " + ", ".join(missing[:10])
     elif op == "import":
         cards = parse_deck_text(body.text or "", deck_only=True)
         if not cards:

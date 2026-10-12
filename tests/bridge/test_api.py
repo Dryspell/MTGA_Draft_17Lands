@@ -177,6 +177,36 @@ def test_deck_analyze_and_export(bridge):
     assert "17 Mountain" in text
 
 
+def _pick(card_id, pick):
+    with open(state.scanner.arena_file, "a", encoding="utf-8") as f:
+        f.write(
+            '[UnityCrossThreadLogger]==> Event_PlayerDraftMakePick {"id":"x","request":"{\\"DraftId\\":\\"test-draft\\",'
+            f'\\"GrpId\\":{card_id},\\"Pack\\":1,\\"Pick\\":{pick}}}"}}\n'
+        )
+    state.orchestrator.step_process()
+
+
+def test_live_build_session_tracks_new_picks(bridge):
+    ids = PACK.split(",")
+    _pick(ids[0], 1)
+    session = bridge.post("/api/sealed/live").json()
+    assert session["poolSize"] == 1
+    first = session["sideboard"][0]["name"]
+
+    built = bridge.post(
+        f"/api/sealed/{session['id']}/action",
+        json={"op": "set", "name": "Aggro", "cards": [{"name": first, "count": 1}, {"name": "Plains", "count": 2}]},
+    ).json()
+    assert built["active"] == "Aggro"
+    assert {c["name"]: c["count"] for c in built["main"]} == {first: 1, "Plains": 2}
+
+    _pick(ids[1], 2)
+    synced = bridge.post("/api/sealed/live").json()
+    assert synced["poolSize"] == 2
+    assert "Aggro" in synced["variants"]
+    assert any(c["name"] == first for c in synced["main"])
+
+
 def test_suggest_rejects_small_pool(bridge):
     assert bridge.post("/api/deck/suggest", json={}).status_code == 400
 
