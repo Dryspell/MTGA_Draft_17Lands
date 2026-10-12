@@ -81,7 +81,7 @@ export function CardPiles({ cards, zone, pileOf = defaultPile, showEmpty, onCard
         <div
           key={pile}
           {...columnDrop(pile)}
-          className={`flex max-w-[124px] min-w-[84px] flex-1 flex-col rounded-md p-0.5 transition-colors ${over === pile ? HIGHLIGHT : ''}`}
+          className={`flex max-w-[124px] min-w-[72px] flex-1 flex-col rounded-md p-0.5 transition-colors ${over === pile ? HIGHLIGHT : ''}`}
         >
           <div className="mb-1 text-center text-[10px] font-semibold tracking-wider text-stone-500 uppercase">
             {pileLabel(pile)} · {list.reduce((n, c) => n + c.count, 0)}

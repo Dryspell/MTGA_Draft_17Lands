@@ -10,7 +10,7 @@ import { usePileLayout } from '../lib/piles'
 import { copyText, openUrl, readClipboard } from '../lib/platform'
 import { CardTable } from '../components/CardTable'
 import { CardPiles, DropZone } from '../components/CardPiles'
-import { DeckStats, SampleHand, SimResults } from '../components/DeckPanels'
+import { DeckStats, DeckSummaryBar, SampleHand, SimResults } from '../components/DeckPanels'
 import { Button, Check, Empty, Progress, Section, Segmented } from '../components/primitives'
 import { PracticeDialog } from '../components/TopBar'
 
@@ -151,107 +151,115 @@ function Workspace({ session, update, live }: { session: SealedState; update: (s
   }
   const select = (name: string) => { setSim(IDLE); act({ op: 'select', name }) }
 
+  const analyze = <Button variant="ghost" onClick={() => runSim('analyze')} disabled={!total || sim.busy}>Analyze</Button>
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[13px] font-semibold text-white">{session.label}</span>
-        <span className="text-[11px] text-stone-500">{session.poolSize} card pool</span>
-        <div className="flex-1" />
-        {!live && <Button variant="ghost" onClick={() => setSealedId(null)}>Back to draft pool</Button>}
-        <Button variant="ghost" onClick={() => setPractice('generate')}>Practice sealed</Button>
-        <Button variant="ghost" onClick={() => setPractice('import')}>Import pool</Button>
-        {practice && <PracticeDialog mode={practice} onClose={() => setPractice(null)} />}
+    <div className="@container">
+      <div className="grid items-start gap-3 @min-[800px]:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[13px] font-semibold text-white">{session.label}</span>
+            <span className="text-[11px] text-stone-500">{session.poolSize} card pool</span>
+            <div className="flex-1" />
+            {!live && <Button variant="ghost" onClick={() => setSealedId(null)}>Back to draft pool</Button>}
+            <Button variant="ghost" onClick={() => setPractice('generate')}>Practice sealed</Button>
+            <Button variant="ghost" onClick={() => setPractice('import')}>Import pool</Button>
+            {practice && <PracticeDialog mode={practice} onClose={() => setPractice(null)} />}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="mr-1 text-[11px] font-semibold tracking-wider text-stone-500 uppercase">Builds</span>
+            {session.variants.map((v) => (
+              <button
+                key={v}
+                onClick={() => v !== session.active && select(v)}
+                onDoubleClick={rename}
+                className={`rounded-md px-2.5 py-1 text-[12px] ${v === session.active ? 'bg-accent/20 text-white ring-1 ring-accent/50' : 'bg-white/5 text-stone-400 hover:text-white'}`}
+                title="Double-click to rename"
+              >
+                {v}
+                {(records[v]?.wins || records[v]?.losses) ? (
+                  <span className="tabular ml-1.5 text-[10px] text-stone-400" title="Games played with this build">{records[v].wins}–{records[v].losses}</span>
+                ) : null}
+              </button>
+            ))}
+            <Button variant="ghost" onClick={() => act({ op: 'create' })}>+ New</Button>
+            <Button variant="ghost" onClick={() => act({ op: 'copy' })}>Duplicate</Button>
+            <Button variant="ghost" onClick={rename}>Rename</Button>
+            <Button variant="ghost" onClick={() => act({ op: 'delete' })} disabled={session.variants.length < 2}>Delete</Button>
+          </div>
+
+          <Suggestions session={session} live={live} act={act} update={update} />
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button onClick={() => act({ op: 'auto-lands' })} title="Fill the rest of the deck with the best basic land split">Auto-lands</Button>
+            <Button onClick={() => runSim('analyze')} disabled={!total || sim.busy}>Analyze</Button>
+            <Button onClick={() => runSim('optimize')} disabled={sim.busy}>Auto-optimize</Button>
+            <Button onClick={() => exportTo('mtga')} disabled={!total}>Copy deck</Button>
+            <Button onClick={() => exportTo('sealeddeck')} busy={busy.startsWith('Exporting')} disabled={!total}>sealeddeck.tech</Button>
+            <Button onClick={async () => act({ op: 'import', text: await readClipboard() })} title="Replace this build with a deck list from the clipboard">Import deck</Button>
+            <Button onClick={() => exportPool().catch((e) => toast(e.message, 'error'))}>Export pool</Button>
+            <Button variant="ghost" onClick={() => act({ op: 'clear' })} disabled={!total}>Clear</Button>
+            <div className="flex-1" />
+            <Segmented value={view} onChange={setView} options={[{ value: 'visual', label: 'Visual' }, { value: 'list', label: 'List' }]} />
+          </div>
+          {busy && <Progress value={null} message={busy} />}
+
+          <BasicsBar main={session.main} add={(name) => act({ op: 'main', card: name })} remove={(name) => act({ op: 'side', card: name })} />
+
+          <div className={view === 'list' ? 'grid gap-3 @min-[1100px]:grid-cols-2' : 'flex flex-col gap-3'}>
+            <Section
+              title={`${session.active} · deck (${total}/40)`}
+              right={
+                <span className="flex items-center gap-2 text-[10px] text-stone-500">
+                  {view === 'visual' && layout.custom && <button onClick={layout.reset} className="text-accent hover:underline">Reset piles</button>}
+                  drag or click cards to move them
+                </span>
+              }
+            >
+              <DeckSummaryBar deck={session.main} stats={sim.view?.stats} />
+              <DropZone onDrop={(d) => dropOnDeck(d)} className="-m-1 p-1">
+                {view === 'visual' ? (
+                  <CardPiles cards={session.main} zone="deck" pileOf={layout.pileOf} showEmpty onCardClick={toSide} onDropToPile={dropOnDeck} />
+                ) : (
+                  <CardTable
+                    viewId="sealed_deck_table"
+                    cards={session.main}
+                    extraFields={['cmc']}
+                    onRowClick={toSide}
+                    onRowDragStart={(c, e) => startCardDrag(e, { name: c.name, from: 'deck' })}
+                    empty={<div className="py-6 text-center text-[12px] text-stone-500">Drag cards here from your pool.</div>}
+                  />
+                )}
+              </DropZone>
+            </Section>
+
+            <Section title={`Pool / sideboard (${count(session.sideboard)})`}>
+              <PoolFilters filters={filters} onChange={setFilters} />
+              <DropZone onDrop={dropOnPool} className="-m-1 p-1">
+                {view === 'visual' ? (
+                  pool.length ? <CardPiles cards={pool} zone="pool" onCardClick={toMain} /> : <div className="py-6 text-center text-[12px] text-stone-500">Drag cards here to take them out of the deck.</div>
+                ) : (
+                  <CardTable
+                    viewId="sealed_pool_table"
+                    cards={pool}
+                    extraFields={['cmc']}
+                    onRowClick={toMain}
+                    onRowDragStart={(c, e) => startCardDrag(e, { name: c.name, from: 'pool' })}
+                  />
+                )}
+              </DropZone>
+            </Section>
+          </div>
+
+        </div>
+
+        <aside className="flex min-w-0 flex-col gap-3 @min-[800px]:sticky @min-[800px]:top-0 @min-[800px]:max-h-[calc(100vh-7rem)] @min-[800px]:overflow-y-auto">
+          <DeckStats deck={session.main} />
+          <SimResults stats={sim.view?.stats ?? null} note={sim.view?.note} advice={sim.view?.advice} busy={sim.busy} message={sim.message || 'Press Analyze to simulate this build.'} right={analyze} />
+          {total > 0 && <SampleHand deck={session.main} columns="grid-cols-7 @min-[800px]:grid-cols-4" />}
+        </aside>
       </div>
-
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="mr-1 text-[11px] font-semibold tracking-wider text-stone-500 uppercase">Builds</span>
-        {session.variants.map((v) => (
-          <button
-            key={v}
-            onClick={() => v !== session.active && select(v)}
-            onDoubleClick={rename}
-            className={`rounded-md px-2.5 py-1 text-[12px] ${v === session.active ? 'bg-accent/20 text-white ring-1 ring-accent/50' : 'bg-white/5 text-stone-400 hover:text-white'}`}
-            title="Double-click to rename"
-          >
-            {v}
-            {(records[v]?.wins || records[v]?.losses) ? (
-              <span className="tabular ml-1.5 text-[10px] text-stone-400" title="Games played with this build">{records[v].wins}–{records[v].losses}</span>
-            ) : null}
-          </button>
-        ))}
-        <Button variant="ghost" onClick={() => act({ op: 'create' })}>+ New</Button>
-        <Button variant="ghost" onClick={() => act({ op: 'copy' })}>Duplicate</Button>
-        <Button variant="ghost" onClick={rename}>Rename</Button>
-        <Button variant="ghost" onClick={() => act({ op: 'delete' })} disabled={session.variants.length < 2}>Delete</Button>
-      </div>
-
-      <Suggestions session={session} live={live} act={act} update={update} />
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button onClick={() => act({ op: 'auto-lands' })} title="Fill the rest of the deck with the best basic land split">Auto-lands</Button>
-        <Button onClick={() => runSim('analyze')} disabled={!total || sim.busy}>Analyze</Button>
-        <Button onClick={() => runSim('optimize')} disabled={sim.busy}>Auto-optimize</Button>
-        <Button onClick={() => exportTo('mtga')} disabled={!total}>Copy deck</Button>
-        <Button onClick={() => exportTo('sealeddeck')} busy={busy.startsWith('Exporting')} disabled={!total}>sealeddeck.tech</Button>
-        <Button onClick={async () => act({ op: 'import', text: await readClipboard() })} title="Replace this build with a deck list from the clipboard">Import deck</Button>
-        <Button onClick={() => exportPool().catch((e) => toast(e.message, 'error'))}>Export pool</Button>
-        <Button variant="ghost" onClick={() => act({ op: 'clear' })} disabled={!total}>Clear</Button>
-        <div className="flex-1" />
-        <Segmented value={view} onChange={setView} options={[{ value: 'visual', label: 'Visual' }, { value: 'list', label: 'List' }]} />
-      </div>
-      {busy && <Progress value={null} message={busy} />}
-
-      <BasicsBar main={session.main} add={(name) => act({ op: 'main', card: name })} remove={(name) => act({ op: 'side', card: name })} />
-
-      <div className={view === 'list' ? 'grid gap-3 lg:grid-cols-2' : 'flex flex-col gap-3'}>
-        <Section
-          title={`${session.active} · deck (${total}/40)`}
-          right={
-            <span className="flex items-center gap-2 text-[10px] text-stone-500">
-              {view === 'visual' && layout.custom && <button onClick={layout.reset} className="text-accent hover:underline">Reset piles</button>}
-              drag or click cards to move them
-            </span>
-          }
-        >
-          <DropZone onDrop={(d) => dropOnDeck(d)} className="-m-1 p-1">
-            {view === 'visual' ? (
-              <CardPiles cards={session.main} zone="deck" pileOf={layout.pileOf} showEmpty onCardClick={toSide} onDropToPile={dropOnDeck} />
-            ) : (
-              <CardTable
-                viewId="sealed_deck_table"
-                cards={session.main}
-                extraFields={['cmc']}
-                onRowClick={toSide}
-                onRowDragStart={(c, e) => startCardDrag(e, { name: c.name, from: 'deck' })}
-                empty={<div className="py-6 text-center text-[12px] text-stone-500">Drag cards here from your pool.</div>}
-              />
-            )}
-          </DropZone>
-        </Section>
-
-        <Section title={`Pool / sideboard (${count(session.sideboard)})`}>
-          <PoolFilters filters={filters} onChange={setFilters} />
-          <DropZone onDrop={dropOnPool} className="-m-1 p-1">
-            {view === 'visual' ? (
-              pool.length ? <CardPiles cards={pool} zone="pool" onCardClick={toMain} /> : <div className="py-6 text-center text-[12px] text-stone-500">Drag cards here to take them out of the deck.</div>
-            ) : (
-              <CardTable
-                viewId="sealed_pool_table"
-                cards={pool}
-                extraFields={['cmc']}
-                onRowClick={toMain}
-                onRowDragStart={(c, e) => startCardDrag(e, { name: c.name, from: 'pool' })}
-              />
-            )}
-          </DropZone>
-        </Section>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <DeckStats deck={session.main} />
-        <SimResults stats={sim.view?.stats ?? null} note={sim.view?.note} advice={sim.view?.advice} busy={sim.busy} message={sim.message || 'Press Analyze to simulate this build.'} />
-      </div>
-      {total > 0 && <SampleHand deck={session.main} />}
     </div>
   )
 }
@@ -311,6 +319,7 @@ function Suggestions({ session, live, act, update }: {
   const { snapshot, runJob, toast } = useApp()
   const { builder, setBuilder } = useUi()
   const [preview, setPreview] = useState<string | null>(null)
+  const [showAll, setShowAll] = useState(false)
   const [shellsBusy, setShellsBusy] = useState(false)
   const spells = [...session.main, ...session.sideboard].filter((c) => !isLand(c)).reduce((n, c) => n + c.count, 0)
   const poolKey = `${snapshot?.draftId}:${snapshot?.poolSize}`
@@ -366,7 +375,7 @@ function Suggestions({ session, live, act, update }: {
       {builder.running && <Progress value={null} message={builder.message} />}
       {!builder.running && builder.error && <div className="rounded-md bg-red-500/10 px-3 py-2 text-[12px] text-red-300">{builder.error}</div>}
       <div className="flex flex-col gap-1">
-        {builder.variants.map((v) => {
+        {(showAll ? builder.variants : builder.variants.slice(0, 3)).map((v) => {
           const name = buildName(v.label)
           const saved = session.variants.includes(name)
           return (
@@ -393,6 +402,11 @@ function Suggestions({ session, live, act, update }: {
             </div>
           )
         })}
+        {builder.variants.length > 3 && (
+          <button onClick={() => setShowAll(!showAll)} className="self-start px-2 py-0.5 text-[11px] text-accent hover:underline">
+            {showAll ? 'Show fewer' : `Show ${builder.variants.length - 3} more`}
+          </button>
+        )}
       </div>
     </Section>
   )

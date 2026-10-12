@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Card, SimStats } from '../types'
 import { useApp } from '../store'
 import { COLOR_LABEL, COLOR_VAR, identityColor, tagLabel } from '../lib/cards'
@@ -54,6 +54,48 @@ export function DeckStats({ deck }: { deck: Card[] }) {
   )
 }
 
+const KEY_SIM: Threshold[] = [
+  ['T3 play', 'cast_t3', 65, 50],
+  ['Mulligan', 'mulligans', 15, 25, true],
+  ['Missed 4th land', 'screw_t4', 25, 35, true],
+]
+const TONE_TEXT = { good: 'text-emerald-300', fair: 'text-amber-300', bad: 'text-red-300' }
+
+/** One-line deck readout that sits right above the deck while building. */
+export function DeckSummaryBar({ deck, stats, target = 40 }: { deck: Card[]; stats?: SimStats | null; target?: number }) {
+  const s = summarize(deck)
+  const max = Math.max(4, ...s.curve)
+  const countTone = s.total === target ? 'text-emerald-300' : s.total > target ? 'text-amber-300' : 'text-white'
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-stone-400">
+      <span><b className={`tabular text-[13px] ${countTone}`}>{s.total}</b>/{target}</span>
+      <span className="tabular">{s.creatures} creatures · {s.spells} other · {s.lands} lands</span>
+      <span className="flex items-center gap-1.5">
+        {Object.entries(s.pips).filter(([, n]) => n > 0).map(([c, n]) => (
+          <span key={c} className="tabular flex items-center gap-0.5" title={`${COLOR_LABEL[c]} pips`}>
+            <span className="size-2 rounded-full" style={{ background: COLOR_VAR[c] }} />{n}
+          </span>
+        ))}
+      </span>
+      <span className="flex items-end gap-0.5" title={`Mana curve 1-6+ (avg ${s.avgCmc.toFixed(2)})`}>
+        {s.curve.map((n, i) => (
+          <span key={i} className="w-2.5 rounded-t-[1px] bg-accent/70" style={{ height: Math.max(n ? 2 : 1, (n / max) * 18) }} />
+        ))}
+        <span className="tabular ml-1">avg {s.avgCmc.toFixed(1)}</span>
+      </span>
+      {stats && (
+        <span className="flex gap-3">
+          {KEY_SIM.map(([label, key, good, fair, reverse]) => {
+            const v = stats[key] ?? 0
+            const tone = reverse ? (v <= good ? 'good' : v <= fair ? 'fair' : 'bad') : v >= good ? 'good' : v >= fair ? 'fair' : 'bad'
+            return <span key={key}>{label} <b className={`tabular ${TONE_TEXT[tone]}`}>{v.toFixed(0)}%</b></span>
+          })}
+        </span>
+      )}
+    </div>
+  )
+}
+
 type Threshold = [label: string, key: keyof SimStats, good: number, fair: number, reverse?: boolean, percent?: boolean]
 
 const CONSISTENCY: Threshold[] = [
@@ -79,13 +121,13 @@ function SimRow([label, key, good, fair, reverse = false, percent = true]: Thres
   return <Stat key={key} label={label} tone={tone} value={`${percent ? `${v.toFixed(1)}%` : v.toFixed(2)} · ${word}`} />
 }
 
-export function SimResults({ stats, note, advice, busy, message }: { stats: SimStats | null; note?: string | null; advice?: string[]; busy?: boolean; message?: string }) {
+export function SimResults({ stats, note, advice, busy, message, right }: { stats: SimStats | null; note?: string | null; advice?: string[]; busy?: boolean; message?: string; right?: ReactNode }) {
   return (
-    <Section id="simulation_panel" title="Simulation (10,000 games)">
+    <Section id="simulation_panel" title="Simulation" right={right}>
       {busy ? (
         <div className="flex items-center gap-2 py-4 text-[12px] text-stone-400"><Spinner /> {message || 'Running 10,000 Monte Carlo simulations…'}</div>
       ) : !stats ? (
-        <div className="py-2 text-[12px] text-stone-500">{message || 'Run Analyze to simulate draws from this deck.'}</div>
+        <div className="py-2 text-[12px] text-stone-500">{message || 'Run Analyze to simulate 10,000 games with this deck.'}</div>
       ) : (
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-0.5">
@@ -110,15 +152,15 @@ export function SimResults({ stats, note, advice, busy, message }: { stats: SimS
 }
 
 /** Deals a fresh hand whenever the deck's contents (not just its identity) change. */
-export function SampleHand({ deck }: { deck: Card[] }) {
-  return <DealtHand key={deck.map((c) => c.name).join('|')} deck={deck} />
+export function SampleHand({ deck, columns = 'grid-cols-4 sm:grid-cols-7' }: { deck: Card[]; columns?: string }) {
+  return <DealtHand key={deck.map((c) => c.name).join('|')} deck={deck} columns={columns} />
 }
 
-function DealtHand({ deck }: { deck: Card[] }) {
+function DealtHand({ deck, columns }: { deck: Card[]; columns: string }) {
   const [hand, setHand] = useState(() => sampleHand(deck))
   return (
-    <Section id="sample_hand_panel" title="Sample hand" right={<Button variant="ghost" onClick={() => setHand(sampleHand(deck))}>Draw new hand</Button>}>
-      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-7">
+    <Section id="sample_hand_panel" title="Sample hand" right={<Button variant="ghost" onClick={() => setHand(sampleHand(deck))}>Redraw</Button>}>
+      <div className={`grid gap-1.5 ${columns}`}>
         {hand.map((c, i) => <HandCard key={`${c.name}-${i}`} card={c} />)}
       </div>
     </Section>
