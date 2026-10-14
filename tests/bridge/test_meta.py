@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 
 from bridge import meta
@@ -73,7 +74,8 @@ def test_archetypes_classify_and_compare(tmp_path, monkeypatch):
     assert by_name["Dimir Aggro"]["deckCount"] == 3 and by_name["Dimir Aggro"]["tournamentDecks"] == 1
     assert by_name["Dimir Aggro"]["winRate"] == 0.8
     extra = [a for a in archs if a["source"] == "spicerack"]
-    assert len(extra) == 1 and extra[0]["deckCount"] == 2 and extra[0]["share"] == 2 / 3
+    # Lists mtgtop8 doesn't know split the share its archetypes leave over.
+    assert len(extra) == 1 and extra[0]["deckCount"] == 2 and abs(extra[0]["share"] - 0.76) < 1e-9
 
     store = meta.MetaStore(str(tmp_path))
     store.settings = lambda: SimpleNamespace(meta_enabled=True, meta_mtgtop8=True, meta_spicerack_key="")
@@ -104,6 +106,51 @@ def test_refresh_keeps_old_data_when_sources_fail(tmp_path, monkeypatch):
     monkeypatch.setattr(meta, "fetch_spicerack", boom)
     data = store.refresh("Standard", fetch=object())
     assert data["archetypes"] == [{"name": "Old"}] and data["sources"]["spicerack"] == {"ok": False, "error": "timed out"}
+    assert not store.due("Standard")
+
+
+def test_partial_failure_reuses_the_failed_sources_last_lists(tmp_path, monkeypatch):
+    monkeypatch.setattr(meta, "is_land", lambda n: n in LANDS)
+    store = meta.MetaStore(str(tmp_path))
+    store.settings = lambda: SimpleNamespace(meta_enabled=True, meta_mtgtop8=True, meta_spicerack_key="")
+    dimir = [("Kaito", 4), ("Dream Beavers", 4), ("Spyglass Siren", 4)]
+    stompy = [("Llanowar Elves", 4), ("Mossborn Hydra", 4), ("Icetill Explorer", 4)]
+    top8 = [{"id": "770", "name": "Dimir Aggro", "share": 0.2, "style": "Aggro", "decks": [_deck(dimir, id="m1", source="mtgtop8")]}]
+    monkeypatch.setattr(meta, "fetch_mtgtop8", lambda *a, **k: top8)
+    monkeypatch.setattr(meta, "fetch_spicerack", lambda *a, **k: [_deck(stompy, id="s1"), _deck(stompy, id="s2")])
+    first = store.refresh("Standard", fetch=object())
+    assert {a["name"] for a in first["archetypes"]} >= {"Dimir Aggro"} and len(first["archetypes"]) == 2
+
+    def boom(*a, **k):
+        raise meta.requests.ConnectTimeout("nope")
+    monkeypatch.setattr(meta, "fetch_spicerack", boom)
+    second = store.refresh("Standard", fetch=object())
+    assert len(second["archetypes"]) == 2, "Spicerack's previous lists stand in while it's down"
+    assert second["sources"]["spicerack"]["stale"] and second["lastError"]
+
+
+def test_refresh_runs_once_per_format(tmp_path, monkeypatch):
+    import threading
+    store = meta.MetaStore(str(tmp_path))
+    store.settings = lambda: SimpleNamespace(meta_enabled=True, meta_mtgtop8=False, meta_spicerack_key="")
+    calls, gate = [], threading.Event()
+
+    def slow(*a, **k):
+        calls.append(1)
+        gate.wait(5)
+        return [_deck([("Opt", 40)], id="s1")]
+    monkeypatch.setattr(meta, "fetch_spicerack", slow)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(store.refresh("Standard", fetch=object()))) for _ in range(2)]
+    threads[0].start()
+    while not calls:
+        time.sleep(0.01)
+    threads[1].start()
+    time.sleep(0.2)
+    gate.set()
+    for t in threads:
+        t.join(5)
+    assert len(calls) == 1 and len(results) == 2
 
 
 def test_pick_guide_tries_meta_name_then_local_label():

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from bridge import game_view, meta, routes_meta
 from bridge.arena_cards import arena_cards
 from bridge.decks import ANY_OPPONENT, is_limited_event, local_time, names_key
+from bridge.jsonfile import Unreadable
 from bridge.serialize import serialize_card
 from bridge.state import state
 
@@ -335,6 +336,7 @@ class GuideBody(BaseModel):
     ins: List[GuideRow] = []
     outs: List[GuideRow] = []
     note: str = ""
+    previous: str = ""
 
 
 @router.put("/constructed/decks/{deck_id}/guides")
@@ -343,7 +345,7 @@ def save_guide(deck_id: str, body: GuideBody):
     key = body.key.strip()[:80]
     if not key:
         raise HTTPException(400, "Pick which opponents this plan is for.")
-    _library().set_guide(deck_id, key, [r.model_dump() for r in body.ins], [r.model_dump() for r in body.outs], body.note[:2000])
+    _library().set_guide(deck_id, key, [r.model_dump() for r in body.ins], [r.model_dump() for r in body.outs], body.note[:2000], body.previous)
     state.refresh_game = True
     return _detail(_deck(deck_id))
 
@@ -397,7 +399,10 @@ def constructed_stats():
 @router.get("/matches")
 def matches(limit: int = 100):
     history = game_view.load_history_cached()
-    meta = game_view.load_matches()
+    try:
+        meta = game_view.load_matches()
+    except Unreadable:
+        meta = {}
     groups: Dict[str, List[Dict]] = defaultdict(list)
     for r in history:
         groups[r.get("matchId") or r["id"]].append(r)

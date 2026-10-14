@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { useApp } from '../store'
-import type { ConstructedDeck, MetaArchetype, MetaCard, MetaDeck, MetaFormatData, MetaOverview, WinLoss } from '../types'
+import type { ConstructedDeck, Job, MetaArchetype, MetaCard, MetaDeck, MetaFormatData, MetaOverview, WinLoss } from '../types'
 import { RARITY_TONE, WILDCARDS } from '../lib/cards'
 import { copyText } from '../lib/platform'
+import { shortDate } from '../lib/dates'
 import { Button, Empty, Progress, Section, Select, Spinner } from '../components/primitives'
 import { Pips, WinLossText } from '../components/Records'
 
@@ -29,36 +30,47 @@ export function MetaView({ onImported }: { onImported: (deck: ConstructedDeck) =
   const [chosen, setChosen] = useState(() => localStorage.getItem('meta-format') ?? '')
   const [data, setData] = useState<MetaFormatData | null>(null)
   const [selected, setSelected] = useState('')
-  const [progress, setProgress] = useState<string | null>(null)
+  // Progress belongs to one format's download, which keeps going if you switch away.
+  const [jobs, setJobs] = useState<Record<string, string>>({})
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
     api.metagame().then(setOverview).catch((e) => toast((e as Error).message, 'error'))
   }, [enabled, mtgtop8, tick, toast])
 
-  const format = chosen || overview?.suggested || 'Standard'
+  // Until the overview arrives we don't know which format you play, so don't guess and fetch the wrong one.
+  const format = chosen || overview?.suggested || ''
   const pick = (f: string) => {
     localStorage.setItem('meta-format', f)
     setChosen(f)
     setSelected('')
   }
 
+  const follow = useCallback((fmt: string, start: Promise<Job>, failure: string) => {
+    const report = (message: string | null) => setJobs((j) => {
+      const next = { ...j }
+      if (message === null) delete next[fmt]
+      else next[fmt] = message
+      return next
+    })
+    report('Starting…')
+    runJob(start, (j) => report(j.message || 'Downloading tournament results…'))
+      .then(() => setTick((t) => t + 1))
+      .catch((e) => toast(`${failure}${(e as Error).message}`, 'error'))
+      .finally(() => report(null))
+  }, [runJob, toast])
+
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !format) return
     let alive = true
     api.metagameFormat(format).then((d) => {
       if (!alive) return
       setData(d)
-      if (d.job && d.job.status === 'running') {
-        setProgress(d.job.message || 'Downloading tournament results…')
-        runJob(Promise.resolve(d.job), (j) => alive && setProgress(j.message || null))
-          .then(() => alive && setTick((t) => t + 1))
-          .catch((e) => alive && toast(`Metagame update failed: ${(e as Error).message}`, 'error'))
-          .finally(() => alive && setProgress(null))
-      }
+      if (d.job && d.job.status === 'running') follow(format, Promise.resolve(d.job), 'Metagame update failed: ')
     }).catch((e) => alive && toast((e as Error).message, 'error'))
     return () => { alive = false }
-  }, [enabled, mtgtop8, format, tick, runJob, toast])
+  }, [enabled, mtgtop8, format, tick, follow, toast])
+  const progress = jobs[format] ?? null
 
   if (!config) return null
   if (!enabled) {
@@ -78,13 +90,7 @@ export function MetaView({ onImported }: { onImported: (deck: ConstructedDeck) =
   const current = archetypes.find((a) => a.id === selected) ?? archetypes[0] ?? null
   const formats = overview?.formats.filter((f) => f.available || f.format === format) ?? []
 
-  const refresh = () => {
-    setProgress('Starting…')
-    runJob(api.refreshMetagame(format), (j) => setProgress(j.message || null))
-      .then(() => setTick((t) => t + 1))
-      .catch((e) => toast((e as Error).message, 'error'))
-      .finally(() => setProgress(null))
-  }
+  const refresh = () => follow(format, api.refreshMetagame(format), '')
 
   return (
     <div className="@container flex flex-col gap-3">
@@ -96,7 +102,7 @@ export function MetaView({ onImported }: { onImported: (deck: ConstructedDeck) =
           {shown?.fetched ? <>Updated {new Date(shown.fetched).toLocaleString()}</> : 'Not downloaded yet'}
           {Object.entries(shown?.sources ?? {}).map(([k, s]) => (
             <span key={k} className={`ml-2 ${s?.ok ? 'text-stone-400' : 'text-amber-300'}`} title={s?.error}>
-              · {SOURCE_LABEL[k] ?? k}: {s?.ok ? `${s.decks ?? 0} lists` : s?.error}
+              · {SOURCE_LABEL[k] ?? k}: {s?.ok ? `${s.decks ?? 0} lists` : `${s?.error}${s?.stale ? ', showing its previous lists' : ''}`}
             </span>
           ))}
         </div>
@@ -110,7 +116,7 @@ export function MetaView({ onImported }: { onImported: (deck: ConstructedDeck) =
       )}
 
       {!shown ? (
-        <Empty title={<span className="flex items-center gap-2"><Spinner /> Loading {format}…</span>} />
+        <Empty title={<span className="flex items-center gap-2"><Spinner /> Loading {format || 'the metagame'}…</span>} />
       ) : !archetypes.length ? (
         <Empty title={`No ${format} tournament data yet`}>
           {progress !== null ? 'Downloading now. This takes about a minute because the sites are read slowly on purpose.' : 'Press Refresh to download it.'}
@@ -233,7 +239,7 @@ function SampleList({ deck, format, onImported }: { deck: MetaDeck; format: stri
       <div className="flex flex-wrap items-center gap-2">
         <button className="min-w-0 flex-1 truncate text-left text-stone-200 hover:text-white" onClick={() => setOpen(!open)} title="Show the list">
           <span className={`mr-1 inline-block text-[9px] text-stone-500 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
-          {deck.player || 'Unknown player'} <span className="text-stone-500">· {deck.event}{deck.rank ? ` · ${placing(deck.rank)}` : ''}{record ? ` · ${record}` : ''}{deck.date ? ` · ${new Date(deck.date).toLocaleDateString()}` : ''}</span>
+          {deck.player || 'Unknown player'} <span className="text-stone-500">· {deck.event}{deck.rank ? ` · ${placing(deck.rank)}` : ''}{record ? ` · ${record}` : ''}{deck.date ? ` · ${shortDate(deck.date)}` : ''}</span>
         </button>
         {cost && <Cost cost={cost} />}
         <button className="text-[11px] text-stone-400 hover:text-stone-100" onClick={() => copyText(deckText(deck)).then(() => toast('List copied in Arena format', 'success'))}>Copy</button>

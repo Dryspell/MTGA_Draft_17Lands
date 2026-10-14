@@ -213,12 +213,14 @@ class Game:
 
     def _result(self) -> str:
         my_team = self.players.get(self.seat, {}).get("teamId", self.seat)
-        for r in self.info.get("results", []):
-            if r.get("scope") == "MatchScope_Game":
-                if r.get("result") == "ResultType_Draw":
-                    return "draw"
-                return "win" if r.get("winningTeamId") == my_team else "loss"
-        return "loss"
+        # Arena accumulates results over a match: game 2's list holds game 1's result first.
+        games = [r for r in self.info.get("results", []) if r.get("scope") == "MatchScope_Game"]
+        if not games:
+            return "loss"
+        r = games[-1]
+        if r.get("result") == "ResultType_Draw":
+            return "draw"
+        return "win" if r.get("winningTeamId") == my_team else "loss"
 
 
 class GameTracker:

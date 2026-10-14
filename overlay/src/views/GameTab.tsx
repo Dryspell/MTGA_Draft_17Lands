@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { useApp } from '../store'
 import { useFormat, useUi } from '../ui'
@@ -7,6 +7,7 @@ import { formatStat, identityColor, statsFor } from '../lib/cards'
 import { useCardProps } from '../components/cardInteractions'
 import { ManaCost } from '../components/ManaCost'
 import { eventLabel, phaseLabel } from '../lib/game'
+import { shortDate } from '../lib/dates'
 import { Empty, Section, Segmented } from '../components/primitives'
 import { Breakdown, Pips, WinLossText } from '../components/Records'
 
@@ -276,7 +277,7 @@ function OpponentPanel({ game }: { game: GameView }) {
           <span>You've played <span className="text-stone-200">{opp.name}</span> {opp.versus.games} time{opp.versus.games === 1 ? '' : 's'}:</span>
           <WinLossText r={opp.versus} />
           {opp.versus.archetypes.length > 0 && <span>· {opp.versus.archetypes.join(', ')}</span>}
-          <span className="text-stone-500">· last {new Date(opp.versus.last).toLocaleDateString()}</span>
+          <span className="text-stone-500">· last {shortDate(opp.versus.last)}</span>
           {opp.versus.cards.length > 0 && <div className="w-full truncate text-stone-500" title={opp.versus.cards.join(', ')}>Showed: {opp.versus.cards.join(', ')}</div>}
         </div>
       )}
@@ -387,7 +388,11 @@ function Sideboarding({ game }: { game: GameView }) {
             <p className="text-[12px] text-stone-500">No plan saved{opp.archetypeName ? ` for ${opp.archetypeName}` : ''}{game.deck.name ? ` with ${game.deck.name}` : ''}.</p>
           )}
           {game.deck.id && (
-            <button className="mt-2 text-[11px] text-accent hover:underline" onClick={() => setTab('decks')}>
+            <button className="mt-2 text-[11px] text-accent hover:underline" onClick={() => {
+              localStorage.setItem('constructed-deck', game.deck.id ?? '')
+              localStorage.setItem('constructed-mode', 'decks')
+              setTab('decks')
+            }}>
               {guide ? 'Edit plans in the Constructed tab' : 'Write a plan in the Constructed tab'} →
             </button>
           )}
@@ -573,10 +578,16 @@ function MatchRow({ match: m, onOpen }: { match: MatchSummary; onOpen: (gameId: 
   const { toast } = useApp()
   const [note, setNote] = useState(m.note)
   const [editing, setEditing] = useState(false)
+  const saved = useRef(m.note)
   const save = () => {
     setEditing(false)
-    if (note === m.note) return
-    api.setMatchNote(m.matchId, note).catch((e) => toast((e as Error).message, 'error'))
+    if (note === saved.current) return
+    const previous = saved.current
+    saved.current = note
+    api.setMatchNote(m.matchId, note).catch((e) => {
+      saved.current = previous
+      toast((e as Error).message, 'error')
+    })
   }
   return (
     <div className="rounded-lg bg-panel px-3 py-2 text-[12px]">

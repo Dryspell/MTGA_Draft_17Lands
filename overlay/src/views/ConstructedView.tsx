@@ -6,6 +6,8 @@ import { RARITY_TONE, WILDCARDS, identityColor, isCreature, isLand } from '../li
 import { openingLands } from '../lib/deck'
 import { eventLabel } from '../lib/game'
 import { copyText, readClipboard } from '../lib/platform'
+import { shortDate } from '../lib/dates'
+import { markEditing } from '../lib/editing'
 import { useCardProps } from '../components/cardInteractions'
 import { ManaCost } from '../components/ManaCost'
 import { DeckStats, DeckSummaryBar, SampleHand, SimResults } from '../components/DeckPanels'
@@ -17,6 +19,7 @@ type DeckList = Awaited<ReturnType<typeof api.constructedDecks>>
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
 const winRate = (r: WinLoss) => (r.wins + r.losses ? r.wins / (r.wins + r.losses) : 0)
+const RESULT_TONE: Record<string, string> = { win: 'bg-emerald-500/15 text-emerald-300', loss: 'bg-red-500/15 text-red-300', draw: 'bg-white/10 text-stone-300' }
 
 export function ConstructedView() {
   const { decksVersion, toast } = useApp()
@@ -39,9 +42,10 @@ export function ConstructedView() {
     setSelectedState(id)
   }
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     api.constructedDecks().then((l) => { setList(l); setError('') }).catch((e) => setError((e as Error).message))
-  }, [decksVersion])
+  }, [])
+  useEffect(reload, [decksVersion, reload])
 
   const formats = useMemo(() => [...new Set((list?.decks ?? []).map((d) => d.format).filter(Boolean))].sort(), [list])
   const visible = useMemo(() => {
@@ -56,7 +60,7 @@ export function ConstructedView() {
     </div>
   )
   if (mode === 'meta') {
-    return <div>{switcher}<MetaView onImported={(d) => { setSelected(d.id); setMode('decks') }} /></div>
+    return <div>{switcher}<MetaView onImported={(d) => { setSelected(d.id); setMode('decks'); reload() }} /></div>
   }
   if (error && !list) return <Empty title="Constructed decks unavailable">{error}</Empty>
   if (!list) return <Empty title={<span className="flex items-center gap-2"><Spinner /> Loading decks…</span>} />
@@ -97,7 +101,7 @@ export function ConstructedView() {
             </div>
           )}
           {current ? (
-            <DeckDetail key={current.id} summary={current} onDeleted={() => setSelected(null)} />
+            <DeckDetail key={current.id} summary={current} onChanged={reload} onDeleted={() => { setSelected(null); reload() }} />
           ) : (
             <Empty title="No constructed decks yet" action={<Button variant="primary" onClick={() => setImporting(true)}>Import a deck list</Button>}>
               Decks appear here as Arena logs them: open a deck in Arena's deck builder, queue with it, or play a game. You can also paste any deck list.
@@ -108,7 +112,7 @@ export function ConstructedView() {
       {importing && (
         <ImportDialog
           onClose={() => setImporting(false)}
-          onSaved={(d) => { setImporting(false); setSelected(d.id); toast(`Imported ${d.name}`, 'success') }}
+          onSaved={(d) => { setImporting(false); setSelected(d.id); reload(); toast(`Imported ${d.name}`, 'success') }}
         />
       )}
     </div>
@@ -147,7 +151,7 @@ function Wildcards({ balance }: { balance: Record<string, number> }) {
 
 // ---- one deck ----------------------------------------------------------------
 
-function DeckDetail({ summary, onDeleted }: { summary: ConstructedDeckSummary; onDeleted: () => void }) {
+function DeckDetail({ summary, onChanged, onDeleted }: { summary: ConstructedDeckSummary; onChanged: () => void; onDeleted: () => void }) {
   const { decksVersion, toast } = useApp()
   const [deck, setDeck] = useState<ConstructedDeck | null>(null)
   const [sim, setSim] = useState<{ stats: SimStats | null; advice: string[]; busy: boolean; message?: string }>({ stats: null, advice: [], busy: false })
@@ -180,13 +184,23 @@ function DeckDetail({ summary, onDeleted }: { summary: ConstructedDeckSummary; o
     toast('Deck copied in Arena format. Use Import in Arena\'s deck builder.', 'success')
   }
   const rename = async () => {
-    const name = window.prompt('Deck name', deck.name)
-    if (name && name !== deck.name) setDeck(await api.renameDeck(deck.id, name))
+    const name = window.prompt('Deck name', deck.name)?.trim()
+    if (!name || name === deck.name) return
+    try {
+      setDeck(await api.renameDeck(deck.id, name))
+      onChanged()
+    } catch (e) {
+      toast(`Could not rename the deck: ${(e as Error).message}`, 'error')
+    }
   }
   const remove = async () => {
     if (!window.confirm(`Delete the imported deck "${deck.name}"?`)) return
-    await api.deleteDeck(deck.id)
-    onDeleted()
+    try {
+      await api.deleteDeck(deck.id)
+      onDeleted()
+    } catch (e) {
+      toast(`Could not delete the deck: ${(e as Error).message}`, 'error')
+    }
   }
   const target = deck.commander.length ? 100 : 60
 
@@ -196,7 +210,7 @@ function DeckDetail({ summary, onDeleted }: { summary: ConstructedDeckSummary; o
         {deck.tileImage && <img src={deck.tileImage} alt="" className="h-12 w-[34px] shrink-0 rounded object-cover ring-1 ring-black/40" />}
         <div className="min-w-0 flex-1">
           <div className="text-[11px] tracking-wider text-stone-500 uppercase">
-            {deck.format || 'Constructed'}{deck.source === 'import' ? ' · imported' : ''}{deck.lastPlayed ? ` · played ${new Date(deck.lastPlayed).toLocaleDateString()}` : ''}
+            {deck.format || 'Constructed'}{deck.source === 'import' ? ' · imported' : ''}{deck.lastPlayed ? ` · played ${shortDate(deck.lastPlayed)}` : ''}
           </div>
           <div className="flex items-center gap-2 text-[15px] font-semibold text-white"><Pips colors={deck.colors} /> <span className="truncate">{deck.name}</span></div>
         </div>
@@ -407,7 +421,7 @@ function MetaComparePanel({ deck }: { deck: ConstructedDeck }) {
         {nearest && changes > 0 && (
           <div className="rounded bg-white/[0.03] px-2 py-1.5">
             <div className="text-[11px] text-stone-400">
-              Closest list: {nearest.player || 'unknown player'} · {nearest.event}{nearest.date ? ` · ${new Date(nearest.date).toLocaleDateString()}` : ''}.
+              Closest list: {nearest.player || 'unknown player'} · {nearest.event}{nearest.date ? ` · ${shortDate(nearest.date)}` : ''}.
               {changes <= 30 ? ' To match it:' : ` It differs from yours by ${changes} cards.`}
             </div>
             {changes <= 30 && <div className="mt-0.5 text-[11px]"><Changes ins={nearest.add} outs={nearest.cut} /></div>}
@@ -481,16 +495,26 @@ function GuideEditor({ deck, guide, onCancel, onSaved }: { deck: ConstructedDeck
   const [outs, setOuts] = useState(() => new Map(guide.out.map((c) => [c.name, c.count])))
   const [note, setNote] = useState(guide.note)
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    markEditing('guide', true)
+    return () => { markEditing('guide', false) }
+  }, [])
   const options = useMemo(() => {
     const faced = [...deck.stats.byOpponent.map((r) => r.key), ...deck.sideboardHistory.map((s) => s.key)].filter((k) => k && k !== 'Unknown')
     return [...new Set([ANY_OPPONENT, ...SPEEDS, ...faced, ...deck.metaArchetypes])]
   }, [deck])
-  const totalIn = [...ins.values()].reduce((a, b) => a + b, 0)
-  const totalOut = [...outs.values()].reduce((a, b) => a + b, 0)
-  const rows = (m: Map<string, number>) => [...m].filter(([, n]) => n > 0).map(([name, count]) => ({ name, count }))
+  // A saved plan can name cards the list no longer has; those can't be seen or edited, so they don't count.
+  const rows = (m: Map<string, number>, cards: DeckCard[]) => cards
+    .map((c) => ({ name: c.name, count: Math.min(m.get(c.name) ?? 0, c.count) }))
+    .filter((r) => r.count > 0)
+  const inRows = rows(ins, deck.side)
+  const outRows = rows(outs, deck.main)
+  const totalIn = inRows.reduce((a, r) => a + r.count, 0)
+  const totalOut = outRows.reduce((a, r) => a + r.count, 0)
+  const clash = deck.guides.find((g) => g.key !== guide.key && g.key.toLowerCase() === key.trim().toLowerCase())
   const save = () => {
     setBusy(true)
-    api.saveGuide(deck.id, key.trim(), rows(ins), rows(outs), note)
+    api.saveGuide(deck.id, key.trim(), inRows, outRows, note, guide.key)
       .then(onSaved)
       .catch((e) => toast((e as Error).message, 'error'))
       .finally(() => setBusy(false))
@@ -503,6 +527,7 @@ function GuideEditor({ deck, guide, onCancel, onSaved }: { deck: ConstructedDeck
           <Input list="guide-opponents" value={key} onChange={(e) => setKey(e.target.value)} placeholder="e.g. Mono-Red Aggro, Control, Any opponent" className="flex-1" />
           <datalist id="guide-opponents">{options.map((o) => <option key={o} value={o} />)}</datalist>
         </label>
+        {clash && <p className="text-[11px] text-amber-300">Saving replaces your existing plan vs {clash.key}.</p>}
         <p className="text-[10px] text-stone-500">
           During a match the most specific plan wins: the exact archetype ("Rakdos Aggro"), then its colors ("Rakdos"), then its style ("Aggro"), then "{ANY_OPPONENT}".
           {deck.metaArchetypes.length > 0 && ` Tournament archetypes from the ${deck.metaFormat} metagame are in the list too.`}
@@ -572,8 +597,8 @@ function RecordPanel({ stats, recent }: { stats: RecordBreakdown; recent: Constr
           <div className="flex flex-wrap gap-1">
             {recent.map((g) => (
               <span key={g.id} title={`${g.result} vs ${g.opponent || 'unknown'} · ${g.onPlay ? 'play' : 'draw'} · ${new Date(g.time).toLocaleString()}`}
-                className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${g.result === 'win' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'}`}>
-                {g.result === 'win' ? 'W' : 'L'} <Pips colors={g.colors} />
+                className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${RESULT_TONE[g.result] ?? RESULT_TONE.loss}`}>
+                {g.result === 'win' ? 'W' : g.result === 'draw' ? 'D' : 'L'} <Pips colors={g.colors} />
               </span>
             ))}
           </div>
@@ -658,7 +683,7 @@ function ImportDialog({ onClose, onSaved }: { onClose: () => void; onSaved: (dec
       width="max-w-lg"
       footer={(
         <>
-          <Button variant="ghost" onClick={async () => setText(await readClipboard())}>Paste from clipboard</Button>
+          <Button variant="ghost" onClick={async () => { setText(await readClipboard()); setCheck(null) }}>Paste from clipboard</Button>
           <div className="flex-1" />
           <Button onClick={() => run('check')} busy={busy === 'check'} disabled={!text.trim()}>Check collection</Button>
           <Button variant="primary" onClick={() => run('save')} busy={busy === 'save'} disabled={!text.trim()}>Save deck</Button>

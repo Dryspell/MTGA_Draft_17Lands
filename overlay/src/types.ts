@@ -515,7 +515,7 @@ export interface MetaFormatData {
   format: string
   enabled: boolean
   fetched?: string
-  sources?: Partial<Record<MetaSource, { ok: boolean; error?: string; decks?: number; archetypes?: number }>>
+  sources?: Partial<Record<MetaSource, { ok: boolean; error?: string; stale?: boolean; decks?: number; archetypes?: number }>>
   archetypes: MetaArchetype[]
   unmatched?: WinLoss
   job?: Job | null

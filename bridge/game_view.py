@@ -22,6 +22,7 @@ from bridge import meta
 from bridge.arena_cards import arena_cards
 from bridge.decks import is_limited_event, pick_guide
 from bridge.game import Game, GameTracker
+from bridge.jsonfile import Unreadable, read_json, write_json
 from bridge.serialize import serialize_card
 
 logger = logging.getLogger(__name__)
@@ -225,7 +226,11 @@ def _with_meta(profile: Dict, game: Game, resolve: Resolver, deck_format: str = 
     names: Counter = Counter()
     for grp, n in (Counter(game.opp_seen.values()) | (game.match_opp or Counter())).items():
         names[_name(resolve, grp)] += n
-    hit = meta.meta_store.classify(meta.format_of(deck_format, game.event_id), names, profile["colors"])
+    try:
+        hit = meta.meta_store.classify(meta.format_of(deck_format, game.event_id), names, profile["colors"])
+    except Exception:
+        logger.exception("Matching the opponent to the metagame failed")
+        hit = None
     if hit:
         profile.update(localArchetype=profile["archetypeName"], archetypeName=hit["name"], meta=hit)
     return profile
@@ -649,18 +654,22 @@ def build_record(game: Game, set_data, deck_format: str = "") -> Dict:
     }
 
 
-_history_lock = threading.Lock()
+_history_lock = threading.RLock()
 _history_cache: Dict[str, tuple] = {}
+_pending: List[tuple] = []
 
 
 def load_history(path: str = None) -> List[Dict]:
+    """Saved game records. Raises Unreadable if the file exists but can't be read right now
+    (a corrupt file is copied aside first, then reads as empty)."""
     path = path or HISTORY_FILE
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except (OSError, ValueError):
-        return []
+        data = read_json(path, [])
+    except Unreadable as e:
+        if not e.corrupt:
+            raise
+        data = []
+    return data if isinstance(data, list) else []
 
 
 def load_history_cached(path: str = None) -> List[Dict]:
@@ -673,47 +682,71 @@ def load_history_cached(path: str = None) -> List[Dict]:
     cached = _history_cache.get(path)
     if cached and cached[0] == stamp:
         return cached[1]
-    history = load_history(path)
+    try:
+        history = load_history(path)
+    except Unreadable:
+        return cached[1] if cached else []
     _history_cache[path] = (stamp, history)
     return history
 
 
 def append_history(record: Dict, path: str = None):
+    """Save a game record; if the file can't be written now, it's retried by flush_pending()."""
     path = path or HISTORY_FILE
     with _history_lock:
-        history = [r for r in load_history(path) if r.get("id") != record["id"]]
-        history.append(record)
-        history.sort(key=lambda r: r.get("time", ""))
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(history[-HISTORY_LIMIT:], f)
-        os.replace(tmp, path)
+        try:
+            history = [r for r in load_history(path) if r.get("id") != record["id"]]
+            history.append(record)
+            history.sort(key=lambda r: r.get("time", ""))
+            write_json(path, history[-HISTORY_LIMIT:])
+        except (OSError, Unreadable):
+            _pending.append(("game", record, path))
+            raise
 
 
 def load_matches(path: str = None) -> Dict[str, Dict]:
     path = path or MATCHES_FILE
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+        data = read_json(path, {})
+    except Unreadable as e:
+        if not e.corrupt:
+            raise
+        data = {}
+    return data if isinstance(data, dict) else {}
 
 
 def update_match(match_id: str, path: str = None, **fields):
     path = path or MATCHES_FILE
     with _history_lock:
-        matches = load_matches(path)
-        matches[match_id] = {**matches.get(match_id, {}), **{k: v for k, v in fields.items() if v is not None}}
-        if len(matches) > HISTORY_LIMIT:
-            for old in sorted(matches, key=lambda m: matches[m].get("time", ""))[: len(matches) - HISTORY_LIMIT]:
-                del matches[old]
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(matches, f)
-        os.replace(tmp, path)
+        try:
+            matches = load_matches(path)
+            matches[match_id] = {**matches.get(match_id, {}), **{k: v for k, v in fields.items() if v is not None}}
+            if len(matches) > HISTORY_LIMIT:
+                for old in sorted(matches, key=lambda m: matches[m].get("time", ""))[: len(matches) - HISTORY_LIMIT]:
+                    del matches[old]
+            write_json(path, matches)
+        except (OSError, Unreadable):
+            _pending.append(("match", (match_id, fields), path))
+            raise
+
+
+def pending_records() -> bool:
+    return bool(_pending)
+
+
+def flush_pending():
+    """Retry records whose save failed (file locked by another program, say)."""
+    with _history_lock:
+        queued = list(_pending)
+        _pending.clear()
+        for kind, item, path in queued:
+            try:
+                if kind == "game":
+                    append_history(item, path)
+                else:
+                    update_match(item[0], path, **item[1])
+            except (OSError, Unreadable) as e:
+                logger.warning("Saving a %s record failed again: %s", kind, e)
 
 
 def _spells(cards: Dict[str, int]) -> Counter:

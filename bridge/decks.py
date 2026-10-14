@@ -23,6 +23,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from src import constants
 
 from bridge.arena_cards import ArenaCards
+from bridge.jsonfile import Unreadable, read_json, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,10 @@ def local_time(stamp: str) -> str:
         except ValueError:
             return stamp
     if t.tzinfo:
-        t = t.astimezone().replace(tzinfo=None)
+        try:
+            t = t.astimezone().replace(tzinfo=None)
+        except (OSError, OverflowError, ValueError):
+            t = t.replace(tzinfo=None)
     return t.isoformat(timespec="seconds")
 
 
@@ -116,16 +120,21 @@ class DeckLibrary:
         self.currency: Dict[str, int] = {}
         self.backfilled = ""
         self.dirty = False
+        self.revision = 0
+        self.readonly = False
         self._lock = threading.RLock()
+        self._write_lock = threading.Lock()
         self._load()
 
     # ---- persistence ------------------------------------------------------
 
     def _load(self):
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
+            data = read_json(self.path, {}) or {}
+        except Unreadable as e:
+            # A locked file must not be overwritten with an empty library; a corrupt one was copied aside.
+            self.readonly = not e.corrupt
+            logger.error("Deck library not loaded: %s", e)
             return
         self.decks = data.get("decks", {})
         self.event_decks = data.get("eventDecks", {})
@@ -138,20 +147,23 @@ class DeckLibrary:
                 self._note_version(d, d.get("lastUpdated", ""))
 
     def save(self):
-        with self._lock:
-            if not self.dirty:
-                return
-            data = {
-                "decks": self.decks, "eventDecks": self.event_decks, "owned": self.owned,
-                "wildcards": self.wildcards, "currency": self.currency, "backfilled": self.backfilled,
-            }
-            data = json.loads(json.dumps(data))
-            self.dirty = False
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        os.replace(tmp, self.path)
+        """Write if anything changed. `revision` counts writes so the server can tell overlays."""
+        with self._write_lock:
+            with self._lock:
+                if not self.dirty or self.readonly:
+                    return
+                data = {
+                    "decks": self.decks, "eventDecks": self.event_decks, "owned": self.owned,
+                    "wildcards": self.wildcards, "currency": self.currency, "backfilled": self.backfilled,
+                }
+                data = json.loads(json.dumps(data))
+                self.dirty = False
+            try:
+                write_json(self.path, data)
+            except OSError:
+                self.dirty = True
+                raise
+            self.revision += 1
 
     # ---- log messages -----------------------------------------------------
 
@@ -208,6 +220,10 @@ class DeckLibrary:
                 deck = course.get("CourseDeck") or {}
                 summary = course.get("CourseDeckSummary") or {}
                 if course.get("CardPool") or is_limited_event(event) or not deck.get("MainDeck"):
+                    continue
+                # Old courses keep copies of decks long since deleted in Arena; the login summary is authoritative.
+                known = self.decks.get(summary.get("DeckId") or "")
+                if not known or known.get("deleted"):
                     continue
                 self._upsert(summary, deck, touch=False)
                 self._event_deck(event, summary.get("DeckId"))
@@ -301,13 +317,18 @@ class DeckLibrary:
 
     # ---- sideboard guides -------------------------------------------------
 
-    def set_guide(self, deck_id: str, key: str, ins: List[Dict], outs: List[Dict], note: str) -> bool:
+    def set_guide(self, deck_id: str, key: str, ins: List[Dict], outs: List[Dict], note: str, previous: str = "") -> bool:
+        """Save a plan. `previous` is the key it was saved under before, when renaming; a plan
+        whose key differs only in case is replaced too, since matching ignores case."""
         with self._lock:
             d = self.decks.get(deck_id)
             if not d or not key:
                 return False
             clean = lambda rows: [{"name": r["name"], "count": int(r["count"])} for r in rows if r.get("name") and int(r.get("count", 0)) > 0]
-            d.setdefault("guides", {})[key] = {
+            guides = d.setdefault("guides", {})
+            for old in [k for k in guides if k == previous or k.casefold() == key.casefold()]:
+                del guides[old]
+            guides[key] = {
                 "in": clean(ins), "out": clean(outs), "note": note,
                 "updated": datetime.now().astimezone().isoformat(timespec="seconds"),
             }

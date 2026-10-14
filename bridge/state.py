@@ -27,6 +27,7 @@ class BridgeState:
         self.game_view: Optional[dict] = None
         self.decks = None
         self.decks_version = 0
+        self.decks_seen = 0
         self.refresh_game = False
 
     @property

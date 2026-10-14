@@ -61,6 +61,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       ws.onclose = () => {
         if (disposed) return
+        // Job updates only arrive over this socket, so anything still running can never finish.
+        for (const id of listeners.current.keys()) {
+          const known = jobs.current.get(id)
+          if (known && known.status !== 'running') continue
+          onJob({ ...(known ?? { id, kind: '', progress: null }), status: 'error', message: 'Lost the connection to the engine before this finished' })
+        }
         setConnected(false)
         setStatus('Engine offline, retrying...')
         retry = window.setTimeout(connect, 1500)

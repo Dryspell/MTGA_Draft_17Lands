@@ -4,6 +4,7 @@ import { UiProvider } from './UiProvider'
 import { useApp } from './store'
 import { useUi } from './ui'
 import { applyTheme } from './lib/theme'
+import { isEditing } from './lib/editing'
 import { inTauri, setAlwaysOnTop, setWindowSize, windowSize } from './lib/platform'
 import { CardInteractionsProvider } from './components/CardHover'
 import { TitleBar } from './components/TitleBar'
@@ -70,7 +71,7 @@ function useFollowGames() {
   const seen = useRef<string | null>(null)
   const key = game?.active ? `${game.matchId}:${game.gameNumber}` : game?.match.sideboarding ? `${game.matchId}:${game.gameNumber}:sb` : null
   useEffect(() => {
-    if (key && key !== seen.current) setTab('game')
+    if (key && key !== seen.current && !isEditing()) setTab('game')
     seen.current = key ?? seen.current
   }, [key, setTab])
 }

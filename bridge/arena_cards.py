@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 import threading
+import unicodedata
 from typing import Dict, List, Optional
 
 from src import constants
@@ -41,6 +42,11 @@ TRICK = re.compile(r"\btarget creature( you control)? gets \+|\bgains? (hexproof
 TOKENS = re.compile(r"\bcreate (a|an|one|two|three|x|\d+) .*?token", re.I)
 LIFEGAIN = re.compile(r"\byou gain \d+ life|\blifelink\b", re.I)
 EVASION = {"Flying", "Menace", "Trample", "Unblockable"}
+
+
+def _fold(name: str) -> str:
+    """Lowercase without accents, so sites that drop them still match."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", name) if not unicodedata.combining(ch)).lower()
 
 
 def _mana(text: str) -> str:
@@ -223,7 +229,7 @@ class ArenaCards:
             lowest = rarity.get(c["name"])
             if c.get("primary") and (lowest is None or RARITY_ORDER[c["rarity"]] < RARITY_ORDER[lowest]):
                 rarity[c["name"]] = c["rarity"]
-            for name in {c["name"], c["name"].lower()}:
+            for name in {c["name"], c["name"].lower(), _fold(c["name"])}:
                 if name not in rank or score > rank[name]:
                     rank[name], by_name[name] = score, grp
         with self._lock:
@@ -237,13 +243,32 @@ class ArenaCards:
         return self.cards.get(str(grp_id))
 
     def lookup(self, name: str) -> Optional[Dict]:
-        """Card by name; accepts 'Front // Back' and any capitalisation."""
+        """Card by name, in any capitalisation, with or without accents ('Kili' finds 'Kíli').
+        Split, Room and Aftermath cards may be written 'A/B', 'A // B' or 'A /// B', and a lone
+        half ('Unholy Annex') finds the whole card."""
         name = (name or "").strip()
-        for candidate in (name, name.lower(), name.split(" // ")[0], name.split(" // ")[0].lower(), name.split("/")[0].strip().lower()):
-            grp = self.by_name.get(candidate)
-            if grp is not None:
-                return dict(self.cards[str(grp)], grpId=grp)
+        if not name:
+            return None
+        parts = [p for p in re.split(r"\s*/{1,3}\s*", name) if p]
+        candidates = [name]
+        if len(parts) > 1:
+            candidates += [" // ".join(parts), " /// ".join(parts)]
+        if parts:
+            candidates.append(parts[0])
+        for candidate in candidates:
+            for key in (candidate, candidate.lower(), _fold(candidate)):
+                grp = self.by_name.get(key)
+                if grp is not None:
+                    return self._whole(grp)
         return None
+
+    def _whole(self, grp: int) -> Dict:
+        card = self.cards[str(grp)]
+        for parent in card.get("linked") or []:
+            whole = self.cards.get(str(parent))
+            if whole and whole["name"].startswith(card["name"] + " /"):
+                return dict(whole, grpId=int(parent))
+        return dict(card, grpId=grp)
 
     def names(self) -> List[str]:
         return sorted({c["name"] for c in self.cards.values() if not c.get("token") and c.get("primary")})

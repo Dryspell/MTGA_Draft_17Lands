@@ -200,6 +200,62 @@ def test_deck_versions_ignore_stale_event_copies(tmp_path):
     assert len(deck["versions"]) == 3
 
 
+def test_bo3_game_result_reads_the_latest_game():
+    tracker = GameTracker()
+    lost_g1 = {"scope": "MatchScope_Game", "result": "ResultType_WinLoss", "winningTeamId": 2}
+    info = {"matchID": "m1", "gameNumber": 2, "stage": "GameStage_Play"}
+    feed(tracker, gre(state("GameStateType_Full", gameInfo=info, players=[{"systemSeatNumber": 1, "teamId": 1}, {"systemSeatNumber": 2, "teamId": 2}])))
+    feed(tracker, gre(state(gameInfo={**info, "stage": "GameStage_GameOver", "results": [
+        lost_g1, {"scope": "MatchScope_Game", "result": "ResultType_WinLoss", "winningTeamId": 1}]})))
+    assert tracker.game.result == "win"
+
+
+def test_old_courses_dont_revive_deleted_decks(tmp_path):
+    lib = DeckLibrary(FakeCards(), path=str(tmp_path / "decks.json"))
+    lib.handle("response", "EventGetCoursesV2", {"Courses": [{"InternalEventName": "Ladder", "CourseDeck": DECK, "CourseDeckSummary": SUMMARY}]})
+    assert "d1" not in lib.decks
+    _upsert(lib, "2026-10-13T13:00:00-05:00", DECK["MainDeck"], "DeckUpsertDeckV3")
+    lib.decks["d1"]["deleted"] = True
+    lib.handle("response", "EventGetCoursesV2", {"Courses": [{"InternalEventName": "Ladder", "CourseDeck": DECK, "CourseDeckSummary": SUMMARY}]})
+    assert lib.decks["d1"]["deleted"] is True
+
+
+def test_corrupt_deck_file_is_kept_not_overwritten(tmp_path):
+    path = tmp_path / "decks.json"
+    path.write_text('{"decks": {"d1": ', encoding="utf-8")
+    lib = DeckLibrary(FakeCards(), path=str(path))
+    assert not lib.decks and not lib.readonly
+    assert [p.name for p in tmp_path.iterdir() if ".corrupt-" in p.name], "the broken file is copied aside first"
+    _upsert(lib, "2026-10-13T13:00:00-05:00", DECK["MainDeck"], "DeckUpsertDeckV3")
+    revision = lib.revision
+    lib.save()
+    assert lib.revision == revision + 1 and "d1" in json.loads(path.read_text(encoding="utf-8"))["decks"]
+
+
+def test_lookup_handles_split_rooms_and_accents():
+    lib = ArenaCards()
+    lib._index({
+        "1": {"name": "Unholy Annex // Ritual Chamber", "linked": ["2", "3"]},
+        "2": {"name": "Unholy Annex", "linked": ["1"]},
+        "3": {"name": "Ritual Chamber", "linked": ["1"]},
+        "4": {"name": "Commit /// Memory"},
+        "5": {"name": "Kíli the Resourceful"},
+    })
+    assert lib.lookup("Unholy Annex/Ritual Chamber")["grpId"] == 1
+    assert lib.lookup("Unholy Annex")["grpId"] == 1
+    assert lib.lookup("Commit // Memory")["grpId"] == 4
+    assert lib.lookup("Kili the Resourceful")["grpId"] == 5
+
+
+def test_renaming_a_plan_replaces_it(tmp_path):
+    lib = DeckLibrary(FakeCards(), path=str(tmp_path / "decks.json"))
+    _upsert(lib, "2026-10-13T13:00:00-05:00", DECK["MainDeck"], "DeckUpsertDeckV3")
+    lib.set_guide("d1", "Aggro", [], [], "old")
+    lib.set_guide("d1", "Mono-Red Aggro", [], [], "renamed", previous="Aggro")
+    lib.set_guide("d1", "mono-red aggro", [], [], "recased")
+    assert {k: g["note"] for k, g in lib.decks["d1"]["guides"].items()} == {"mono-red aggro": "recased"}
+
+
 def test_pick_guide_prefers_specific_plans():
     from bridge.decks import pick_guide
     guides = {"Aggro": {"in": []}, "Rakdos": {"in": []}, "Any opponent": {"in": []}}

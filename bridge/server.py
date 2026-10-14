@@ -120,6 +120,11 @@ async def _poll_game():
     changed = await asyncio.to_thread(state.games.poll, state.scanner.arena_file)
     if state.decks.dirty:
         await asyncio.to_thread(state.decks.save)
+    if game_view.pending_records():
+        await asyncio.to_thread(game_view.flush_pending)
+    # Routes save directly too (imports, renames, guides), so follow the write count.
+    if state.decks.revision != state.decks_seen:
+        state.decks_seen = state.decks.revision
         state.decks_version += 1
         await state.broadcast({"type": "decks", "version": state.decks_version})
     if changed or state.refresh_game:

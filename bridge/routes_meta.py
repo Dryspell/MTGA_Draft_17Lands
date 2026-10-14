@@ -42,7 +42,10 @@ def opponent_label(r: Dict, fmt: Optional[str]) -> str:
     """Today's metagame name for a past opponent, else the name saved with the game."""
     opp = r.get("opponent") or {}
     hit = meta_store.classify(fmt, {c["name"]: c["count"] for c in opp.get("cards", [])}, opp.get("colors", [])) if fmt else None
-    return hit["name"] if hit else opp.get("archetypeName") or "Unknown"
+    if hit:
+        return hit["name"]
+    # A name saved from an older metagame may be one today's data doesn't have.
+    return opp.get("localArchetype") or opp.get("archetypeName") or "Unknown"
 
 
 def _played_formats() -> Counter:
@@ -77,6 +80,8 @@ def refresh_stale():
 
     def run(ctx: JobContext):
         for fmt in stale:
+            if not meta_store.enabled:
+                break
             try:
                 meta_store.refresh(fmt, lambda m, f=fmt: ctx.progress(f"{f}: {m}"))
             except Exception as e:
@@ -191,7 +196,10 @@ def import_list(fmt: str, body: ImportBody):
         raise HTTPException(503, "Arena's card database isn't loaded. Check the MTGA data folder in Settings.")
     arch, d = found
     name = body.name.strip() or f"{arch['name']} ({d.get('player') or d['source']})"
-    deck, unknown = routes_constructed._library().import_text(meta.deck_text(d), name[:80], fmt)
+    try:
+        deck, unknown = routes_constructed._library().import_text(meta.deck_text(d), name[:80], fmt)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return {**routes_constructed._detail(deck), "unknown": unknown}
 
 

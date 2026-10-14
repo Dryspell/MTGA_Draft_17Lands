@@ -18,7 +18,7 @@ def current_game():
 
 @router.get("/games")
 def game_history():
-    return list(reversed(game_view.load_history()))
+    return list(reversed(game_view.load_history_cached()))
 
 
 @router.get("/games/records")
@@ -28,7 +28,7 @@ def build_records(session_id: str):
         raise HTTPException(404, "Unknown deck session")
     variants = {name: dict(v.main_deck_counts) for name, v in entry["session"].variants.items()}
     records = {name: {"wins": 0, "losses": 0} for name in variants}
-    for game in game_view.load_history():
+    for game in game_view.load_history_cached():
         build = game_view.match_build(game.get("deck", []), variants)
         if build and game.get("result") in ("win", "loss"):
             records[build]["wins" if game["result"] == "win" else "losses"] += 1

@@ -8,7 +8,6 @@ Results are cached per format in Temp/meta and refreshed at most daily; live
 games and stats only ever read the cache.
 """
 
-import json
 import logging
 import math
 import os
@@ -24,6 +23,7 @@ import requests
 from src import constants
 
 from bridge.arena_cards import arena_cards
+from bridge.jsonfile import Unreadable, read_json, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ SPICERACK_URL = "https://api.spicerack.gg/api/export-decklists/"
 MTGTOP8_URL = "https://mtgtop8.com"
 MAX_AGE = 24 * 3600
 MIN_MANUAL_AGE = 3600
+SCHEMA = 2  # bump when the cached shape changes; older caches are refetched
 COLORS = "WUBRG"
 
 # Overlay format label -> (Spicerack event_format, mtgtop8 format code)
@@ -120,22 +121,26 @@ def deck_text(deck: Dict) -> str:
 # ---- fetching -----------------------------------------------------------------------
 
 class Fetcher:
-    """Polite HTTP: one request at a time, spaced out, with an identifying user agent."""
+    """Polite HTTP with an identifying user agent. Requests from every Fetcher share one
+    pace, so overlapping refreshes never hit a site faster than one request per `delay`."""
+
+    _pace = threading.Lock()
+    _last = 0.0
 
     def __init__(self, delay: float = 1.0):
         self.delay = delay
         self.session = requests.Session()
         self.session.headers["User-Agent"] = USER_AGENT
-        self._last = 0.0
 
     def get(self, url: str, timeout=20, **kwargs) -> requests.Response:
-        wait = self._last + self.delay - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
-        try:
-            res = self.session.get(url, timeout=timeout, **kwargs)
-        finally:
-            self._last = time.monotonic()
+        with Fetcher._pace:
+            wait = Fetcher._last + self.delay - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            try:
+                res = self.session.get(url, timeout=timeout, **kwargs)
+            finally:
+                Fetcher._last = time.monotonic()
         res.raise_for_status()
         return res
 
@@ -190,7 +195,11 @@ def _dmy(text: str) -> str:
 def fetch_mtgtop8(code: str, fetch: Fetcher, progress: Callable[[str], None], top: int = 12, per: int = 4) -> List[Dict]:
     """Top archetypes for a format, each with a few recent lists."""
     archetypes = parse_mtgtop8_format(fetch.text(f"{MTGTOP8_URL}/format?f={code}"))
-    archetypes = sorted(archetypes, key=lambda a: -a["share"])[:top]
+    # "Other - Aggro" and friends are catch-alls, not decks anyone can be matched to.
+    archetypes = sorted((a for a in archetypes if not a["name"].lower().startswith("other")), key=lambda a: -a["share"])[:top]
+    if not archetypes:
+        raise RuntimeError("no archetypes found on the format page (the site layout may have changed)")
+    failures = 0
     for i, arch in enumerate(archetypes):
         progress(f"mtgtop8: {arch['name']} ({i + 1}/{len(archetypes)})")
         arch["url"] = f"{MTGTOP8_URL}/archetype?a={arch['id']}&meta={arch['meta']}&f={code}"
@@ -199,12 +208,14 @@ def fetch_mtgtop8(code: str, fetch: Fetcher, progress: Callable[[str], None], to
             rows = parse_mtgtop8_archetype(fetch.text(arch["url"]))
         except requests.RequestException as e:
             logger.warning("mtgtop8 archetype %s failed: %s", arch["name"], e)
+            failures += 1
             continue
         for row in rows[:per]:
             try:
                 main, side = parse_list(fetch.text(f"{MTGTOP8_URL}/mtgo?d={row['id']}"))
             except requests.RequestException as e:
                 logger.warning("mtgtop8 deck %s failed: %s", row["id"], e)
+                failures += 1
                 continue
             if main:
                 arch["decks"].append({
@@ -212,7 +223,17 @@ def fetch_mtgtop8(code: str, fetch: Fetcher, progress: Callable[[str], None], to
                     "rank": row["rank"], "date": row["date"], "url": f"{MTGTOP8_URL}/event?e={row['event']}&d={row['id']}&f={code}",
                     "main": main, "side": side,
                 })
+    if not any(a["decks"] for a in archetypes):
+        raise RuntimeError(f"no decklists could be read ({failures} requests failed)")
     return archetypes
+
+
+def _date(stamp) -> str:
+    try:
+        value = float(stamp)
+        return datetime.fromtimestamp(value / 1000 if value > 1e11 else value).date().isoformat()
+    except (TypeError, ValueError, OSError, OverflowError):
+        return str(stamp)[:10] if stamp else ""
 
 
 def fetch_spicerack(code: str, fetch: Fetcher, api_key: str = "", days: int = 14, limit: int = 400) -> List[Dict]:
@@ -221,14 +242,14 @@ def fetch_spicerack(code: str, fetch: Fetcher, api_key: str = "", days: int = 14
     res = fetch.get(SPICERACK_URL, timeout=(10, 60), headers=headers,
                     params={"num_days": days, "event_format": code, "decklist_as_text": "true"})
     decks = []
-    for t in res.json() or []:
-        date = datetime.fromtimestamp(t["startDate"]).date().isoformat() if t.get("startDate") else ""
+    for n, t in enumerate(res.json() or []):
+        date = _date(t.get("startDate"))
         for rank, s in enumerate(t.get("standings") or [], 1):
             main, side = parse_list(s.get("decklist_text") or "")
             if sum(c["count"] for c in main) < 40:
                 continue
             decks.append({
-                "id": f"spicerack:{t.get('TID')}:{rank}", "source": "spicerack", "player": s.get("name", ""),
+                "id": f"spicerack:{t.get('TID') or f'{date}-{n}'}:{rank}", "source": "spicerack", "player": s.get("name", ""),
                 "event": t.get("tournamentName", ""), "rank": str(rank), "date": date, "url": s.get("decklist") or t.get("bracketUrl", ""),
                 "wins": int(s.get("winsSwiss") or 0) + int(s.get("winsBracket") or 0),
                 "losses": int(s.get("lossesSwiss") or 0) + int(s.get("lossesBracket") or 0),
@@ -337,7 +358,13 @@ def build_archetypes(top8: List[Dict], spice: List[Dict], threshold: float = 0.5
         else:
             clusters.append({"decks": [deck], "centroid": dict(spells)})
 
-    total_spice = len(spice) or 1
+    # With mtgtop8 shares as the yardstick, lists it doesn't recognise split whatever share
+    # its top archetypes leave over; Spicerack alone is measured by its own list count.
+    if archetypes:
+        unmatched = sum(len(c["decks"]) for c in clusters) or 1
+        cluster_share = max(0.0, 1 - sum(a["share"] for a in archetypes)) / unmatched
+    else:
+        cluster_share = 1 / (len(spice) or 1)
     keep_singletons = len(spice) < 30
     for a in archetypes:
         a["tournamentDecks"] = sum(1 for d in a["decks"] if d["source"] == "spicerack")
@@ -350,6 +377,7 @@ def build_archetypes(top8: List[Dict], spice: List[Dict], threshold: float = 0.5
         cards = _profile(cl["decks"])
         colors = _colors(cards)
         name = _name_for(cards, colors)
+        style = name.rsplit(" ", 1)[-1]
         if name in taken:
             signature = next((c["name"] for c in cards if not c["land"]), "")
             name = f"{name} ({signature})" if signature else name
@@ -358,7 +386,7 @@ def build_archetypes(top8: List[Dict], spice: List[Dict], threshold: float = 0.5
         while name in taken:
             name, n = f"{base} {n}", n + 1
         taken.add(name)
-        arch = {"id": f"spicerack:{name}", "name": name, "style": name.rsplit(" ", 1)[-1], "share": len(cl["decks"]) / total_spice,
+        arch = {"id": f"spicerack:{name}", "name": name, "style": style, "share": len(cl["decks"]) * cluster_share,
                 "source": "spicerack", "url": "", "colors": colors, "tournamentDecks": len(cl["decks"])}
         archetypes.append(_finish(arch, cl["decks"]))
     return sorted(archetypes, key=lambda a: (-a["share"], -a["deckCount"]))
@@ -373,6 +401,7 @@ class MetaStore:
         self._cache: Dict[str, Optional[Dict]] = {}
         self._failed: Dict[str, float] = {}
         self._lock = threading.Lock()
+        self._refreshing: Dict[str, threading.Lock] = {}
 
     # settings -------------------------------------------------------------
 
@@ -390,8 +419,8 @@ class MetaStore:
 
     # cache ----------------------------------------------------------------
 
-    def _path(self, fmt: str) -> str:
-        return os.path.join(self.folder, re.sub(r"[^A-Za-z]", "", fmt) + ".json")
+    def _path(self, fmt: str, suffix: str = "") -> str:
+        return os.path.join(self.folder, re.sub(r"[^A-Za-z]", "", fmt) + suffix + ".json")
 
     def load(self, fmt: Optional[str]) -> Optional[Dict]:
         if not fmt or fmt not in FORMATS:
@@ -400,22 +429,31 @@ class MetaStore:
             if fmt in self._cache:
                 return self._cache[fmt]
         try:
-            with open(self._path(fmt), "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
+            data = read_json(self._path(fmt), None)
+        except Unreadable:
+            data = None
+        if not isinstance(data, dict) or data.get("schema") != SCHEMA:
             data = None
         with self._lock:
             self._cache[fmt] = data
         return data
 
-    def save(self, fmt: str, data: Dict):
+    def save(self, fmt: str, data: Dict, raw: Optional[Dict] = None):
         os.makedirs(self.folder, exist_ok=True)
-        tmp = self._path(fmt) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        os.replace(tmp, self._path(fmt))
+        data = dict(data, schema=SCHEMA)
+        if raw is not None:
+            write_json(self._path(fmt, ".sources"), raw)
+        write_json(self._path(fmt), data)
         with self._lock:
             self._cache[fmt] = data
+
+    def _raw(self, fmt: str) -> Dict:
+        """What each source returned last time it worked, to stand in when it fails."""
+        try:
+            raw = read_json(self._path(fmt, ".sources"), {})
+        except Unreadable:
+            return {}
+        return raw if isinstance(raw, dict) and raw.get("schema") == SCHEMA else {}
 
     def age(self, fmt: str) -> Optional[float]:
         data = self.load(fmt)
@@ -436,7 +474,25 @@ class MetaStore:
     def refresh(self, fmt: str, progress: Callable[[str], None] = lambda m: None, fetch: Optional[Fetcher] = None) -> Dict:
         if fmt not in FORMATS:
             raise ValueError(f"No tournament data for {fmt}")
-        fetch = fetch or Fetcher()
+        with self._lock:
+            lock = self._refreshing.setdefault(fmt, threading.Lock())
+        if not lock.acquire(blocking=False):
+            progress("Waiting for the refresh already in progress")
+            with lock:
+                pass
+            data = self.load(fmt)
+            if data:
+                return data
+            raise RuntimeError(f"The other {fmt} refresh failed")
+        try:
+            return self._refresh(fmt, progress, fetch or Fetcher())
+        except Exception:
+            self._failed[fmt] = time.time()
+            raise
+        finally:
+            lock.release()
+
+    def _refresh(self, fmt: str, progress: Callable[[str], None], fetch: Fetcher) -> Dict:
         spice_code, top8_code = FORMATS[fmt]
         use = self.sources(fmt)
         status: Dict[str, Dict] = {}
@@ -459,26 +515,46 @@ class MetaStore:
                 logger.warning("Spicerack refresh failed: %s", e)
                 status["spicerack"] = {"ok": False, "error": _reason(e)}
         previous = self.load(fmt)
-        if not top8 and not spice:
+        failed = [k for k, v in status.items() if not v["ok"]]
+        if not status or len(failed) == len(status):
             self._failed[fmt] = time.time()
             if previous:
                 previous = dict(previous, sources=status, lastError=time.time())
                 self.save(fmt, previous)
                 return previous
             raise RuntimeError("; ".join(f"{k}: {v.get('error')}" for k, v in status.items()) or "No sources enabled for this format")
+        raw = self._raw(fmt)
+        if failed:
+            # Keep the failed source's last good lists rather than silently dropping half the meta.
+            top8 = top8 or (raw.get("mtgtop8") or [] if "mtgtop8" in failed else [])
+            spice = spice or (raw.get("spicerack") or [] if "spicerack" in failed else [])
+            for k in failed:
+                status[k]["stale"] = bool(raw.get(k))
         progress("Grouping lists into archetypes")
         data = {
             "format": fmt, "fetchedAt": time.time(), "fetched": datetime.now().isoformat(timespec="seconds"),
             "sources": status, "archetypes": build_archetypes(top8, spice),
         }
-        self.save(fmt, data)
-        self._failed.pop(fmt, None)
+        if failed:
+            data["lastError"] = time.time()
+        self.save(fmt, data, {
+            "schema": SCHEMA,
+            "mtgtop8": top8 if use["mtgtop8"] else [],
+            "spicerack": spice if use["spicerack"] else [],
+        })
+        if failed:
+            self._failed[fmt] = time.time()
+        else:
+            self._failed.pop(fmt, None)
         return data
 
     def due(self, fmt: str) -> bool:
-        """Worth refreshing on its own: stale, covered by an enabled source, and not failing lately."""
-        failed = self._failed.get(fmt, 0)
-        return any(self.sources(fmt).values()) and self.stale(fmt) and time.time() - failed > MIN_MANUAL_AGE
+        """Worth refreshing on its own: stale (or partly failed), covered by an enabled source,
+        and not failing lately."""
+        if not any(self.sources(fmt).values()) or time.time() - self._failed.get(fmt, 0) <= MIN_MANUAL_AGE:
+            return False
+        data = self.load(fmt)
+        return self.stale(fmt) or bool(data and data.get("lastError"))
 
     # matching -------------------------------------------------------------
 
