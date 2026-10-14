@@ -255,6 +255,7 @@ class GameTracker:
         self.names: Dict[int, str] = {}
         self.finished: set = set()
         self.game: Optional[Game] = None
+        self.sideboarding: Optional[str] = None
         self.timestamp: Optional[float] = None
         self._pending_api: Optional[str] = None
         self._client_block: Optional[List[str]] = None
@@ -369,6 +370,9 @@ class GameTracker:
         final = info.get("finalMatchResult") or {}
         if final.get("matchId") and final["matchId"] not in self.finished:
             self.finished.add(final["matchId"])
+            if self.sideboarding == final["matchId"]:
+                self.sideboarding = None
+            self.version += 1
             seat = self.game.seat if self.game and self.game.match_id == final["matchId"] else (self.seat or 1)
             result = "draw"
             for r in final.get("resultList", []):
@@ -393,6 +397,10 @@ class GameTracker:
             if deck.get("deckCards"):
                 self.deck = list(deck["deckCards"])
                 self.sideboard = list(deck.get("sideboardCards") or [])
+            # Arena asks for the deck again between games of a match: sideboarding.
+            if self.game and self.game.over and self.match_id not in self.finished:
+                self.sideboarding = self.match_id
+                self.version += 1
         elif kind in ("GREMessageType_GameStateMessage", "GREMessageType_QueuedGameStateMessage"):
             gs = msg.get("gameStateMessage") or {}
             info = gs.get("gameInfo") or {}
@@ -400,6 +408,7 @@ class GameTracker:
             number = info.get("gameNumber")
             if number and (not self.game or self.game.match_id != match_id or self.game.game_number != number):
                 self.match_id = match_id
+                self.sideboarding = None
                 prev = self.game if self.game and self.game.match_id == match_id else None
                 self.game = Game(match_id, number, self.seat or 1, self.event_id, self.deck, self.sideboard)
                 self.game.opponent_name = next((n for s, n in self.names.items() if s != self.game.seat), "")

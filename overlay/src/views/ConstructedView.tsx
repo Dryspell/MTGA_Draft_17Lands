@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { useApp } from '../store'
-import type { CollectionCheck, ConstructedDeck, ConstructedDeckSummary, DeckCard, RecordBreakdown, SimStats, WinLoss } from '../types'
+import type { CollectionCheck, ConstructedDeck, ConstructedDeckSummary, DeckCard, DeckEntry, DeckVersion, RecordBreakdown, SideboardGuide, SimStats, WinLoss } from '../types'
 import { identityColor, isCreature, isLand } from '../lib/cards'
 import { openingLands } from '../lib/deck'
 import { eventLabel } from '../lib/game'
@@ -221,6 +221,8 @@ function DeckDetail({ summary, onDeleted }: { summary: ConstructedDeckSummary; o
                 <RecordPanel stats={deck.stats} recent={deck.recent} />
                 <CollectionPanel check={deck.collection} />
               </div>
+              <GuidesPanel deck={deck} onChange={setDeck} />
+              {deck.versions.length > 0 && <VersionsPanel versions={deck.versions} />}
               <SampleHand deck={deck.main} />
             </div>
             <aside className="flex flex-col gap-3 @min-[760px]:sticky @min-[760px]:top-0">
@@ -283,6 +285,181 @@ function OpeningHands({ deck, mulliganRate }: { deck: DeckCard[]; mulliganRate: 
         {mulliganRate !== null && <div className="flex justify-between"><span className="text-stone-400">Your mulligan rate</span><span className="tabular text-stone-200">{pct(mulliganRate)}</span></div>}
       </div>
     </Section>
+  )
+}
+
+// ---- versions & sideboard guides ------------------------------------------------
+
+const ANY_OPPONENT = 'Any opponent'
+const SPEEDS = ['Aggro', 'Midrange', 'Control', 'Ramp']
+
+function Changes({ ins, outs }: { ins: DeckEntry[]; outs: DeckEntry[] }) {
+  return (
+    <span className="flex flex-wrap gap-x-2 gap-y-0.5">
+      {ins.map((c) => <span key={`in-${c.name}`} className="text-emerald-300">+{c.count} {c.name}</span>)}
+      {outs.map((c) => <span key={`out-${c.name}`} className="text-red-300">−{c.count} {c.name}</span>)}
+    </span>
+  )
+}
+
+function VersionsPanel({ versions }: { versions: DeckVersion[] }) {
+  return (
+    <Section id="constructed_versions" title={`Versions · ${versions.length}`}>
+      <div className="flex max-h-[260px] flex-col gap-1.5 overflow-y-auto text-[12px]">
+        {versions.map((v, i) => (
+          <div key={`${v.key}-${v.at}`} className="rounded bg-white/[0.03] px-2 py-1">
+            <div className="flex items-center gap-2">
+              <span className="text-stone-300">{new Date(v.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+              {v.current && <span className="rounded bg-accent/20 px-1.5 text-[10px] text-accent">current</span>}
+              <span className="text-[11px] text-stone-500">{v.count} cards</span>
+              <span className="flex-1" />
+              <WinLossText r={v.record} />
+            </div>
+            {v.added.length + v.removed.length > 0 ? (
+              <div className="mt-0.5 text-[11px]"><Changes ins={v.added} outs={v.removed} /></div>
+            ) : (
+              <div className="mt-0.5 text-[11px] text-stone-500">{i === versions.length - 1 ? 'First tracked list' : 'Same cards, different printings'}</div>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[10px] text-stone-500">A new version is saved whenever the main deck changes in Arena. Game 1s count toward the exact list; sideboarded games count toward the list current at the time.</p>
+    </Section>
+  )
+}
+
+function GuidesPanel({ deck, onChange }: { deck: ConstructedDeck; onChange: (d: ConstructedDeck) => void }) {
+  const { toast } = useApp()
+  const [editing, setEditing] = useState<SideboardGuide | null>(null)
+  const saved = new Set(deck.guides.map((g) => g.key))
+  const suggestions = deck.sideboardHistory.filter((s) => !saved.has(s.key))
+  const remove = (key: string) => {
+    if (!window.confirm(`Delete the sideboard plan for "${key}"?`)) return
+    api.deleteGuide(deck.id, key).then(onChange).catch((e) => toast((e as Error).message, 'error'))
+  }
+  if (editing) {
+    return <GuideEditor deck={deck} guide={editing} onCancel={() => setEditing(null)} onSaved={(d) => { onChange(d); setEditing(null) }} />
+  }
+  return (
+    <Section
+      id="constructed_guides"
+      title="Sideboard guides"
+      right={<Button variant="ghost" onClick={() => setEditing({ key: '', in: [], out: [], note: '' })}>+ New plan</Button>}
+    >
+      <div className="flex flex-col gap-2 text-[12px]">
+        {deck.guides.length === 0 && (
+          <p className="text-stone-500">
+            Save what to bring in and take out against each kind of opponent. The matching plan shows up on the Game tab when Arena asks you to sideboard, and during games 2 and 3.
+          </p>
+        )}
+        {deck.guides.map((g) => (
+          <div key={g.key} className="rounded bg-white/[0.03] px-2 py-1.5">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-stone-100">vs {g.key}</span>
+              <span className="flex-1" />
+              <button className="text-[11px] text-stone-400 hover:text-stone-100" onClick={() => setEditing(g)}>Edit</button>
+              <button className="text-[11px] text-stone-500 hover:text-red-300" onClick={() => remove(g.key)}>Delete</button>
+            </div>
+            {g.in.length + g.out.length > 0 && <div className="mt-0.5"><Changes ins={g.in} outs={g.out} /></div>}
+            {g.note && <div className="mt-0.5 whitespace-pre-wrap text-stone-400">{g.note}</div>}
+          </div>
+        ))}
+        {suggestions.length > 0 && (
+          <div>
+            <div className="mb-0.5 text-[10px] font-semibold tracking-wider text-stone-500 uppercase">How you've sideboarded before</div>
+            {suggestions.slice(0, 5).map((s) => (
+              <div key={s.key} className="flex items-start gap-2 rounded px-1 py-0.5 hover:bg-white/5">
+                <div className="min-w-0 flex-1">
+                  <span className="text-stone-300">vs {s.key}</span>
+                  <span className="ml-1.5 text-[11px] text-stone-500">{s.games} game{s.games === 1 ? '' : 's'} · <WinLossText r={s} /></span>
+                  <div className="text-[11px]"><Changes ins={s.in} outs={s.out} /></div>
+                </div>
+                <button className="shrink-0 text-[11px] text-accent hover:underline" onClick={() => setEditing({ key: s.key, in: s.in, out: s.out, note: '' })}>Save as plan</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Section>
+  )
+}
+
+function GuideEditor({ deck, guide, onCancel, onSaved }: { deck: ConstructedDeck; guide: SideboardGuide; onCancel: () => void; onSaved: (d: ConstructedDeck) => void }) {
+  const { toast } = useApp()
+  const [key, setKey] = useState(guide.key)
+  const [ins, setIns] = useState(() => new Map(guide.in.map((c) => [c.name, c.count])))
+  const [outs, setOuts] = useState(() => new Map(guide.out.map((c) => [c.name, c.count])))
+  const [note, setNote] = useState(guide.note)
+  const [busy, setBusy] = useState(false)
+  const options = useMemo(() => {
+    const faced = [...deck.stats.byOpponent.map((r) => r.key), ...deck.sideboardHistory.map((s) => s.key)].filter((k) => k && k !== 'Unknown')
+    return [...new Set([ANY_OPPONENT, ...SPEEDS, ...faced])]
+  }, [deck])
+  const totalIn = [...ins.values()].reduce((a, b) => a + b, 0)
+  const totalOut = [...outs.values()].reduce((a, b) => a + b, 0)
+  const rows = (m: Map<string, number>) => [...m].filter(([, n]) => n > 0).map(([name, count]) => ({ name, count }))
+  const save = () => {
+    setBusy(true)
+    api.saveGuide(deck.id, key.trim(), rows(ins), rows(outs), note)
+      .then(onSaved)
+      .catch((e) => toast((e as Error).message, 'error'))
+      .finally(() => setBusy(false))
+  }
+  return (
+    <Section title={guide.key ? `Sideboard plan · vs ${guide.key}` : 'New sideboard plan'}>
+      <div className="flex flex-col gap-2 text-[12px]">
+        <label className="flex items-center gap-2">
+          <span className="w-24 shrink-0 text-stone-400">Against</span>
+          <Input list="guide-opponents" value={key} onChange={(e) => setKey(e.target.value)} placeholder="e.g. Mono-Red Aggro, Control, Any opponent" className="flex-1" />
+          <datalist id="guide-opponents">{options.map((o) => <option key={o} value={o} />)}</datalist>
+        </label>
+        <p className="text-[10px] text-stone-500">
+          During a match the most specific plan wins: the exact archetype ("Rakdos Aggro"), then its colors ("Rakdos"), then its style ("Aggro"), then "{ANY_OPPONENT}".
+        </p>
+        <div className="grid gap-3 @min-[460px]:grid-cols-2">
+          <PlanColumn title={`Bring in · ${totalIn}`} cards={deck.side} counts={ins} onChange={setIns} tone="text-emerald-300"
+            empty="This list has no sideboard." />
+          <PlanColumn title={`Take out · ${totalOut}`} cards={deck.main} counts={outs} onChange={setOuts} tone="text-red-300" empty="" />
+        </div>
+        {totalIn !== totalOut && <p className="text-[11px] text-amber-300">Bringing in {totalIn} and taking out {totalOut}: your deck size will change.</p>}
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Notes: what matters in this matchup, when to keep a hand, play/draw differences…"
+          className="h-16 w-full resize-y rounded bg-black/30 px-2 py-1 text-[12px] text-stone-200 ring-1 ring-line outline-none focus:ring-accent/60"
+        />
+        <div className="flex justify-end gap-1.5">
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button onClick={save} disabled={busy || !key.trim()}>{busy ? 'Saving…' : 'Save plan'}</Button>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+function PlanColumn({ title, cards, counts, onChange, tone, empty }: {
+  title: string; cards: DeckCard[]; counts: Map<string, number>; onChange: (m: Map<string, number>) => void; tone: string; empty: string
+}) {
+  const set = (name: string, n: number) => onChange(new Map(counts).set(name, n))
+  return (
+    <div>
+      <div className="mb-0.5 text-[10px] font-semibold tracking-wider text-stone-500 uppercase">{title}</div>
+      {!cards.length && <p className="text-stone-500">{empty}</p>}
+      <div className="flex max-h-[260px] flex-col overflow-y-auto">
+        {cards.map((c) => {
+          const n = counts.get(c.name) ?? 0
+          return (
+            <div key={c.name} className="flex items-center gap-2 rounded px-1 py-[1px] hover:bg-white/5">
+              <span className="min-w-0 flex-1 truncate text-stone-200">{c.name}</span>
+              <span className="text-[10px] text-stone-500">of {c.count}</span>
+              <button className="size-5 rounded bg-white/5 text-stone-300 hover:bg-white/10 disabled:opacity-30" disabled={n <= 0} onClick={() => set(c.name, n - 1)}>−</button>
+              <span className={`tabular w-4 text-center ${n ? tone : 'text-stone-600'}`}>{n}</span>
+              <button className="size-5 rounded bg-white/5 text-stone-300 hover:bg-white/10 disabled:opacity-30" disabled={n >= c.count} onClick={() => set(c.name, n + 1)}>+</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

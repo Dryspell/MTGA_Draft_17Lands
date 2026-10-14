@@ -63,12 +63,12 @@ function useWindowEffects() {
   }, [mini])
 }
 
-/** Jump to the Game tab whenever a new game starts. */
+/** Jump to the Game tab whenever a new game starts, and when it's time to sideboard. */
 function useFollowGames() {
   const { game } = useApp()
   const { setTab } = useUi()
   const seen = useRef<string | null>(null)
-  const key = game?.active ? `${game.matchId}:${game.gameNumber}` : null
+  const key = game?.active ? `${game.matchId}:${game.gameNumber}` : game?.match.sideboarding ? `${game.matchId}:${game.gameNumber}:sb` : null
   useEffect(() => {
     if (key && key !== seen.current) setTab('game')
     seen.current = key ?? seen.current

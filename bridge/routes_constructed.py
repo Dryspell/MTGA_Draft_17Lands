@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from bridge import game_view
 from bridge.arena_cards import arena_cards
-from bridge.decks import is_limited_event
+from bridge.decks import ANY_OPPONENT, is_limited_event, local_time, names_key
 from bridge.serialize import serialize_card
 from bridge.state import state
 
@@ -179,11 +179,80 @@ def _breakdown(records: List[Dict]) -> Dict:
     }
 
 
+def _name_rows(c: Counter) -> List[Dict]:
+    return [{"name": n, "count": k} for n, k in sorted(c.items()) if k > 0]
+
+
+def _record_names(r: Dict) -> Counter:
+    out: Counter = Counter()
+    for c in r.get("deck", []):
+        out[c["name"]] += c["count"]
+    return out
+
+
+def _versions(d: Dict, records: List[Dict]) -> List[Dict]:
+    """Each list the deck has had, newest first, with what changed and how it did.
+    Game 1 records match a version exactly; sideboarded games go by time."""
+    lib = _library()
+    versions = d.get("versions") or []
+    if not versions:
+        return []
+    by_key = {v["key"]: i for i, v in enumerate(versions)}
+    times = [local_time(v["at"]) for v in versions]
+    buckets = defaultdict(list)
+    for r in records:
+        idx = by_key.get(names_key(_record_names(r))) if r.get("gameNumber", 1) == 1 else None
+        if idx is None:
+            t = r.get("time", "")
+            idx = max((i for i, at in enumerate(times) if at and at <= t), default=0)
+        buckets[idx].append(r)
+    out, prev = [], None
+    for i, v in enumerate(versions):
+        names = lib.names(v["main"])
+        out.append({
+            "key": v["key"], "at": v["at"], "count": sum(names.values()), "current": i == len(versions) - 1,
+            "added": _name_rows(names - prev) if prev is not None else [],
+            "removed": _name_rows(prev - names) if prev is not None else [],
+            "record": _wl(buckets.get(i, [])),
+        })
+        prev = names
+    return out[::-1]
+
+
+def _sideboard_history(records: List[Dict]) -> List[Dict]:
+    """How you actually sideboarded with this deck, per opponent archetype (latest plan first)."""
+    by_match = defaultdict(list)
+    for r in records:
+        by_match[r.get("matchId") or r["id"]].append(r)
+    plans: Dict[str, Dict] = {}
+    for games in by_match.values():
+        games.sort(key=lambda r: r.get("gameNumber", 1))
+        opp = next(((g.get("opponent") or {}).get("archetypeName") for g in games if (g.get("opponent") or {}).get("archetypeName")), "") or "Unknown"
+        for g in games[1:]:
+            sb = g.get("sideboard") or {}
+            if not (sb.get("in") or sb.get("out")):
+                continue
+            entry = plans.setdefault(opp, {"key": opp, "in": sb.get("in", []), "out": sb.get("out", []), "games": 0, "wins": 0, "losses": 0, "time": ""})
+            if g.get("time", "") > entry["time"]:
+                entry.update({"in": sb.get("in", []), "out": sb.get("out", []), "time": g.get("time", "")})
+            entry["games"] += 1
+            entry["wins"] += g.get("result") == "win"
+            entry["losses"] += g.get("result") == "loss"
+    return sorted(plans.values(), key=lambda p: p["time"], reverse=True)
+
+
+def _guides(d: Dict) -> List[Dict]:
+    return [{"key": k, **g} for k, g in sorted((d.get("guides") or {}).items(), key=lambda kv: (kv[0] == ANY_OPPONENT, kv[0]))]
+
+
 def _detail(d: Dict) -> Dict:
     lib = _library()
     records, decks, assigned = _constructed_history()
     mine = [r for r in records if (assigned.get(r["id"]) or {}).get("id") == d["id"]]
     return {
+        "versions": _versions(d, mine),
+        "guides": _guides(d),
+        "sideboardHistory": _sideboard_history(mine),
         **_summary(d, mine),
         "main": _rows(d.get("main", [])),
         "side": _rows(d.get("side", [])),
@@ -251,6 +320,37 @@ def delete_deck(deck_id: str):
     if not _library().remove(deck_id):
         raise HTTPException(400, "Only imported decks can be deleted here.")
     return {"ok": True}
+
+
+class GuideRow(BaseModel):
+    name: str
+    count: int
+
+
+class GuideBody(BaseModel):
+    key: str
+    ins: List[GuideRow] = []
+    outs: List[GuideRow] = []
+    note: str = ""
+
+
+@router.put("/constructed/decks/{deck_id}/guides")
+def save_guide(deck_id: str, body: GuideBody):
+    _deck(deck_id)
+    key = body.key.strip()[:80]
+    if not key:
+        raise HTTPException(400, "Pick which opponents this plan is for.")
+    _library().set_guide(deck_id, key, [r.model_dump() for r in body.ins], [r.model_dump() for r in body.outs], body.note[:2000])
+    state.refresh_game = True
+    return _detail(_deck(deck_id))
+
+
+@router.delete("/constructed/decks/{deck_id}/guides/{key}")
+def delete_guide(deck_id: str, key: str):
+    _deck(deck_id)
+    _library().delete_guide(deck_id, key)
+    state.refresh_game = True
+    return _detail(_deck(deck_id))
 
 
 @router.post("/constructed/decks/{deck_id}/analyze")

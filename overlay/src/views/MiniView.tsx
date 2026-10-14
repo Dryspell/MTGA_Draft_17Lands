@@ -12,7 +12,7 @@ type MiniTab = 'pack' | 'advisor' | 'stats' | 'pool' | 'game'
 export function MiniView() {
   const { snapshot, config, game } = useApp()
   const [tab, setTab] = useState<MiniTab>('pack')
-  const gameKey = game?.active ? `${game.matchId}:${game.gameNumber}` : null
+  const gameKey = game?.active ? `${game.matchId}:${game.gameNumber}` : game?.match.sideboarding ? `${game.matchId}:${game.gameNumber}:sb` : null
   const [followed, setFollowed] = useState<string | null>(null)
   if (gameKey && gameKey !== followed) {
     setFollowed(gameKey)
@@ -71,6 +71,26 @@ const MULL_TONE = {
 }
 
 function MiniGame({ game }: { game: GameView }) {
+  if (!game.active && game.match.sideboarding) {
+    const guide = game.match.guide
+    return (
+      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto text-[12px]">
+        <div className="rounded-lg bg-accent/10 px-3 py-2 ring-1 ring-accent/30">
+          <div className="font-semibold text-white">Sideboarding for game {game.gameNumber + 1}</div>
+          <div className="text-[10px] text-stone-400">vs {game.opponent.name || 'opponent'} · {game.opponent.archetypeName}</div>
+        </div>
+        <Section title={guide ? `Plan vs ${guide.key}` : 'No plan saved'}>
+          {guide ? (
+            <>
+              {guide.in.map((c) => <div key={`in-${c.name}`} className="text-emerald-300">+{c.count} {c.name}</div>)}
+              {guide.out.map((c) => <div key={`out-${c.name}`} className="text-red-300">−{c.count} {c.name}</div>)}
+              {guide.note && <p className="mt-1 whitespace-pre-wrap text-stone-300">{guide.note}</p>}
+            </>
+          ) : <span className="text-stone-500">Add sideboard plans in the full window's Constructed tab.</span>}
+        </Section>
+      </div>
+    )
+  }
   if (!game.active) return <Empty title={game.result ? `Last game: ${game.result}` : 'No game in progress'}>Open the full window's Game tab for the review.</Empty>
   const { me, opponent: opp, library } = game
   return (
@@ -95,6 +115,13 @@ function MiniGame({ game }: { game: GameView }) {
             <span className="ml-2 text-[11px] font-normal text-stone-300">3 lands by T3 {Math.round(game.mulligan.landBy3 * 100)}%</span>
           </div>
           {game.mulligan.reasons.slice(0, 2).map((r) => <div key={r} className="text-[11px] text-stone-300">{r}</div>)}
+        </div>
+      )}
+      {game.gameNumber > 1 && game.match.guide && (
+        <div className="rounded-lg bg-panel px-3 py-1.5 text-[11px]" title={game.match.guide.note}>
+          <span className="text-stone-500">Plan vs {game.match.guide.key}: </span>
+          {game.match.guide.in.map((c) => <span key={`in-${c.name}`} className="mr-1.5 text-emerald-300">+{c.count} {c.name}</span>)}
+          {game.match.guide.out.map((c) => <span key={`out-${c.name}`} className="mr-1.5 text-red-300">−{c.count} {c.name}</span>)}
         </div>
       )}
       {library.tracked && (

@@ -159,14 +159,89 @@ def test_mulligan_advice_and_constructed_tricks(monkeypatch):
 
 def test_similar_opponents_predicts_cards(monkeypatch):
     monkeypatch.setattr(game_view, "_is_land_name", lambda n: n in ("Island", "Swamp"))
+    monkeypatch.setattr(game_view, "arena_cards", FakeCards())
     history = [
         {"matchId": "a", "result": "win", "format": "constructed", "opponent": {"archetypeName": "Dimir Tempo", "cards": [
             {"name": "Opt", "count": 2}, {"name": "Brazen Borrower", "count": 1}, {"name": "Sheoldred", "count": 1}, {"name": "Island", "count": 3}]}},
         {"matchId": "b", "result": "loss", "format": "constructed", "opponent": {"archetypeName": "Mono-Red Aggro", "cards": [{"name": "Shock", "count": 4}]}},
     ]
     similar = game_view.similar_opponents(["Opt", "Brazen Borrower", "Island"], history)
-    assert similar["games"] == 1 and similar["wins"] == 1 and similar["archetype"] == "Dimir Tempo"
-    assert similar["cards"] == [{"name": "Sheoldred", "games": 1}]
+    assert similar["games"] == 1 and similar["wins"] == 1 and similar["archetype"] == "Dimir Tempo" and similar["basis"] == "cards"
+    assert [(c["name"], c["games"], c["cmc"]) for c in similar["cards"]] == [("Sheoldred", 1, 4)]
+    assert game_view.opponents_by_colors(["R"], [], history) is None
+    history[1]["opponent"]["colors"] = ["R"]
+    by_colors = game_view.opponents_by_colors(["R"], [], history)
+    assert by_colors["basis"] == "colors" and by_colors["losses"] == 1 and [c["name"] for c in by_colors["cards"]] == ["Shock"]
+
+
+def _upsert(lib, last_updated, main, name):
+    summary = {"DeckId": "d1", "Name": "Dimir Tempo", "Attributes": [{"name": "LastUpdated", "value": json.dumps(last_updated)}]}
+    lib.handle("request", name, {"request": json.dumps({"Summary": summary, "Deck": {"MainDeck": main}, "EventName": "Ladder"})})
+
+
+def test_deck_versions_ignore_stale_event_copies(tmp_path):
+    lib = DeckLibrary(FakeCards(), path=str(tmp_path / "decks.json"))
+    a = [{"cardId": 1, "quantity": 20}, {"cardId": 2, "quantity": 4}]
+    b = [{"cardId": 1, "quantity": 20}, {"cardId": 2, "quantity": 3}, {"cardId": 4, "quantity": 1}]
+    c = [{"cardId": 1, "quantity": 24}]
+    _upsert(lib, "2026-10-13T13:00:00-05:00", a, "DeckUpsertDeckV3")
+    _upsert(lib, "2026-10-13T14:00:00-05:00", b, "DeckUpsertDeckV3")
+    # The event still holds the list it was joined with.
+    lib.handle("response", "EventGetCoursesV2", {"Courses": [{"InternalEventName": "Ladder", "CourseDeck": {"MainDeck": a},
+               "CourseDeckSummary": {"DeckId": "d1", "Attributes": [{"name": "LastUpdated", "value": "2026-10-13T13:00:00-05:00"}]}}]})
+    deck = lib.decks["d1"]
+    assert {g: n for g, n in deck["main"]} == {1: 20, 2: 3, 4: 1}
+    assert [v["at"][11:16] for v in deck["versions"]] == ["13:00", "14:00"]
+    # A replayed older log adds history before, never replacing the current list.
+    _upsert(lib, "2026-10-13T12:00:00-05:00", c, "DeckUpsertDeckV3")
+    assert [v["at"][11:16] for v in deck["versions"]] == ["12:00", "13:00", "14:00"]
+    assert {g: n for g, n in deck["main"]} == {1: 20, 2: 3, 4: 1}
+    _upsert(lib, "2026-10-13T14:00:00-05:00", b, "EventSetDeckV3")
+    assert len(deck["versions"]) == 3
+
+
+def test_pick_guide_prefers_specific_plans():
+    from bridge.decks import pick_guide
+    guides = {"Aggro": {"in": []}, "Rakdos": {"in": []}, "Any opponent": {"in": []}}
+    assert pick_guide(guides, "Rakdos Aggro")[0] == "Rakdos"
+    assert pick_guide(guides, "Mono-Red Aggro")[0] == "Aggro"
+    assert pick_guide(guides, "Azorius Control")[0] == "Any opponent"
+    assert pick_guide({"Azorius Control": {}}, "azorius control")[0] == "Azorius Control"
+    assert pick_guide({}, "Rakdos Aggro") is None
+
+
+def test_sideboarding_step_shows_the_guide(tmp_path, monkeypatch):
+    monkeypatch.setattr(game_view, "arena_cards", FakeCards())
+    lib = DeckLibrary(FakeCards(), path=str(tmp_path / "decks.json"))
+    _upsert(lib, "2026-10-13T13:00:00-05:00", DECK["MainDeck"], "DeckUpsertDeckV3")
+    lib.set_guide("d1", "Any opponent", [{"name": "Sheoldred", "count": 1}], [{"name": "Opt", "count": 1}], "Bring in the big threat")
+    tracker = GameTracker(on_new_game=lambda g: setattr(g, "deck_id", "d1"))
+    room = {"matchGameRoomStateChangedEvent": {"gameRoomInfo": {"stateType": "MatchGameRoomStateType_Playing", "gameRoomConfig": {
+        "matchId": "m1", "reservedPlayers": [{"systemSeatId": 1, "playerName": "Me", "eventId": "Traditional_Ladder"}]}}}}
+    info = {"matchID": "m1", "gameNumber": 1, "stage": "GameStage_Play"}
+    feed(tracker, json.dumps(room),
+         gre({"type": "GREMessageType_ConnectResp", "connectResp": {"deckMessage": {"deckCards": [1, 2, 3], "sideboardCards": [4]}}}),
+         gre(state("GameStateType_Full", gameInfo=info, players=[{"systemSeatNumber": 1}, {"systemSeatNumber": 2}])))
+    assert tracker.sideboarding is None
+    feed(tracker,
+         gre(state(gameInfo={**info, "stage": "GameStage_GameOver", "results": [{"scope": "MatchScope_Game", "result": "ResultType_WinLoss", "winningTeamId": 2}]})),
+         gre({"type": "GREMessageType_SubmitDeckReq", "submitDeckReq": {"deck": {"deckCards": [1, 2, 3], "sideboardCards": [4]}}}))
+    assert tracker.sideboarding == "m1"
+    view = game_view.build_view(tracker, None, history=[], library=lib)
+    assert view["match"]["sideboarding"] is True and view["active"] is False
+    assert view["match"]["guide"]["key"] == "Any opponent" and view["match"]["guide"]["note"] == "Bring in the big threat"
+    feed(tracker, gre(state("GameStateType_Full", gameInfo={**info, "gameNumber": 2})))
+    assert tracker.sideboarding is None
+    view = game_view.build_view(tracker, None, history=[], library=lib)
+    assert view["match"]["sideboarding"] is False and view["match"]["guide"]["key"] == "Any opponent"
+
+
+def test_outs_by_role():
+    cards = [{"name": "Island", "count": 10, "types": ["Land"]}, {"name": "Opt", "count": 4, "types": ["Instant"], "tags": ["card_advantage"]},
+             {"name": "Sheoldred", "count": 6, "types": ["Creature"], "tags": []}]
+    odds = {o["key"]: o for o in game_view.outs(cards, 20)}
+    assert odds["land"]["copies"] == 10 and abs(odds["land"]["odds"][0] - 0.5) < 1e-9
+    assert odds["draw"]["odds"][0] < odds["draw"]["odds"][1] < odds["draw"]["odds"][2] and "removal" not in odds
 
 
 def test_simulator_uses_full_constructed_deck():

@@ -9,6 +9,7 @@ don't own, so every deck submitted to an event (or played in a game) proves you
 own at least that many copies of each card.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -29,10 +30,51 @@ DECKS_FILE = os.path.join(constants.BASE_DIR, "Decks", "constructed.json")
 LIMITED_EVENT = re.compile(r"Draft|Sealed|Cube|Jumpstart", re.I)
 WILDCARD_KEYS = {"common": "WildCardCommons", "uncommon": "WildCardUnCommons", "rare": "WildCardRares", "mythic": "WildCardMythics"}
 TRACKED_API = ("StartHook", "DeckGetDeckSummariesV3", "DeckUpsertDeckV3", "EventSetDeckV3", "EventGetCoursesV2", "DeckDeleteDeck")
+MAX_VERSIONS = 40
+SPEEDS = ("Aggro", "Midrange", "Control", "Ramp")
+ANY_OPPONENT = "Any opponent"
 
 
 def is_limited_event(event_id: str) -> bool:
     return bool(event_id and LIMITED_EVENT.search(event_id))
+
+
+def names_key(names: Dict[str, int]) -> str:
+    """Printing-independent identity of a card list."""
+    text = "|".join(f"{n}x{name}" for name, n in sorted(names.items()) if n > 0)
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def local_time(stamp: str) -> str:
+    """ISO timestamp (Arena's carry a UTC offset) as naive local time, for ordering."""
+    if not stamp:
+        return ""
+    try:
+        t = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            t = datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", stamp).replace("Z", "+00:00"))
+        except ValueError:
+            return stamp
+    if t.tzinfo:
+        t = t.astimezone().replace(tzinfo=None)
+    return t.isoformat(timespec="seconds")
+
+
+def pick_guide(guides: Dict[str, Dict], archetype: str) -> Optional[Tuple[str, Dict]]:
+    """The saved sideboard plan that best fits an opponent label like 'Rakdos Aggro':
+    exact label, then its colors ('Rakdos'), then its speed ('Aggro'), then 'Any opponent'."""
+    if not guides:
+        return None
+    words = (archetype or "").split()
+    speed = words[-1] if words and words[-1] in SPEEDS else ""
+    base = " ".join(words[:-1]) if speed else " ".join(words)
+    lowered = {k.lower(): k for k in guides}
+    for candidate in (archetype, base, speed, ANY_OPPONENT):
+        key = lowered.get((candidate or "").lower())
+        if candidate and key:
+            return key, guides[key]
+    return None
 
 
 def _cards(raw) -> List[List[int]]:
@@ -86,6 +128,9 @@ class DeckLibrary:
         self.wildcards = data.get("wildcards", {})
         self.currency = data.get("currency", {})
         self.backfilled = data.get("backfilled", "")
+        for d in self.decks.values():
+            if d.get("main") and not d.get("versions"):
+                self._note_version(d, d.get("lastUpdated", ""))
 
     def save(self):
         with self._lock:
@@ -188,16 +233,23 @@ class DeckLibrary:
         fmt = _attr(summary, "Format")
         if fmt:
             d["format"] = fmt
-        for key, attr in (("lastPlayed", "LastPlayed"), ("lastUpdated", "LastUpdated")):
-            value = _attr(summary, attr)
-            if value:
-                d[key] = value
+        # LastUpdated changes only when the list is edited. An older one means an
+        # event's copy from before an edit, or a replayed log: history, not the current list.
+        incoming = _attr(summary, "LastUpdated")
+        older = bool(d.get("main")) and bool(incoming) and local_time(incoming) < local_time(d.get("lastUpdated", ""))
+        last_played = _attr(summary, "LastPlayed")
+        if last_played and local_time(last_played) > local_time(d.get("lastPlayed", "")):
+            d["lastPlayed"] = last_played
+        if incoming and not older:
+            d["lastUpdated"] = incoming
         if summary.get("DeckTileId"):
             d["tile"] = summary["DeckTileId"]
-        if deck:
+        if deck and older:
+            self._note_version(d, incoming, _cards(deck.get("MainDeck")), _cards(deck.get("Sideboard")))
+        elif deck:
+            if touch and not incoming:
+                d["lastUpdated"] = datetime.now().astimezone().isoformat(timespec="seconds")
             self._set_lists(d, deck)
-            if touch:
-                d["lastUpdated"] = d.get("lastUpdated") or datetime.now().isoformat(timespec="seconds")
         self.dirty = True
 
     @staticmethod
@@ -211,6 +263,62 @@ class DeckLibrary:
         d["side"] = _cards(deck.get("Sideboard"))
         d["commander"] = _cards(deck.get("CommandZone"))
         d["companions"] = _cards(deck.get("Companions"))
+        self._note_version(d, d.get("lastUpdated", ""))
+
+    # ---- versions ---------------------------------------------------------
+
+    def names(self, rows: Iterable[Tuple[int, int]]) -> Counter:
+        out: Counter = Counter()
+        for grp, n in rows:
+            card = self.cards.get(grp)
+            out[card["name"] if card else f"#{grp}"] += n
+        return out
+
+    def _note_version(self, d: Dict, at: str, main: Optional[List] = None, side: Optional[List] = None):
+        """Keep a snapshot, in time order, each time a deck's main list changes."""
+        main = d.get("main") if main is None else main
+        side = d.get("side", []) if side is None else side
+        if not main:
+            return
+        key = names_key(self.names(main))
+        versions = d.setdefault("versions", [])
+        if versions and versions[-1]["key"] == key and (not at or local_time(at) >= local_time(versions[-1]["at"])):
+            versions[-1]["side"] = side
+            return
+        if any(v["key"] == key and v["at"] == at for v in versions):
+            return
+        versions.append({"key": key, "at": at or datetime.now().astimezone().isoformat(timespec="seconds"), "main": main, "side": side})
+        versions.sort(key=lambda v: local_time(v["at"]))
+        # A list re-seen later than its first snapshot isn't a new version.
+        collapsed = [v for i, v in enumerate(versions) if i == 0 or v["key"] != versions[i - 1]["key"]]
+        d["versions"] = collapsed[-MAX_VERSIONS:]
+        self.dirty = True
+
+    # ---- sideboard guides -------------------------------------------------
+
+    def set_guide(self, deck_id: str, key: str, ins: List[Dict], outs: List[Dict], note: str) -> bool:
+        with self._lock:
+            d = self.decks.get(deck_id)
+            if not d or not key:
+                return False
+            clean = lambda rows: [{"name": r["name"], "count": int(r["count"])} for r in rows if r.get("name") and int(r.get("count", 0)) > 0]
+            d.setdefault("guides", {})[key] = {
+                "in": clean(ins), "out": clean(outs), "note": note,
+                "updated": datetime.now().astimezone().isoformat(timespec="seconds"),
+            }
+            self.dirty = True
+        self.save()
+        return True
+
+    def delete_guide(self, deck_id: str, key: str) -> bool:
+        with self._lock:
+            d = self.decks.get(deck_id)
+            if not d or key not in d.get("guides", {}):
+                return False
+            del d["guides"][key]
+            self.dirty = True
+        self.save()
+        return True
 
     def _delete(self, deck_id: Optional[str]):
         if deck_id and deck_id in self.decks:

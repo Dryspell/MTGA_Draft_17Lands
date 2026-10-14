@@ -278,13 +278,39 @@ export interface SideboardChanges {
   out: DeckEntry[]
 }
 
-/** Past opponents whose revealed spells overlap this one's, and what else they showed. */
+/** Past opponents whose revealed spells overlap this one's (or, failing that, on the same colors), and what else they showed. */
 export interface SimilarOpponents {
   games: number
   wins: number
   losses: number
   archetype: string
-  cards: { name: string; games: number }[]
+  basis: 'cards' | 'colors'
+  cards: (Card & { games: number })[]
+}
+
+export interface Versus {
+  games: number
+  wins: number
+  losses: number
+  last: string
+  archetypes: string[]
+  cards: string[]
+}
+
+export interface Outs {
+  key: string
+  label: string
+  copies: number
+  /** Chance within the next 1, 2 and 3 draws. */
+  odds: [number, number, number]
+}
+
+export interface SideboardGuide {
+  key: string
+  in: DeckEntry[]
+  out: DeckEntry[]
+  note: string
+  updated?: string
 }
 
 export interface MulliganAdvice {
@@ -310,7 +336,14 @@ export interface GameView {
   eventId: string
   format: GameFormat
   deck: { id: string | null; name: string }
-  match: { wins: number; losses: number; sideboard: SideboardChanges }
+  match: {
+    wins: number
+    losses: number
+    sideboard: SideboardChanges
+    games: { gameNumber: number; result: string | null; onPlay: boolean | null; turns: number }[]
+    sideboarding: boolean
+    guide: SideboardGuide | null
+  }
   active: boolean
   result: 'win' | 'loss' | 'draw' | null
   turn: number
@@ -319,10 +352,19 @@ export interface GameView {
   myTurn: boolean
   onPlay: boolean | null
   me: GameSide
-  opponent: GameSide & { name: string; colors: string[]; archetype: string; archetypeName: string; seen: Card[]; similar: SimilarOpponents | null }
+  opponent: GameSide & {
+    name: string
+    colors: string[]
+    archetype: string
+    archetypeName: string
+    seen: Card[]
+    similar: SimilarOpponents | null
+    plays: { turn: number; plays: { name: string; land: boolean; cmc: number }[] }[]
+    versus: Versus | null
+  }
   tricks: TrickCard[]
   mulligan: MulliganAdvice | null
-  library: { size: number; tracked: boolean; landNext: number; landWithin2: number; cards: (Card & { nextDraw: number })[] }
+  library: { size: number; tracked: boolean; landNext: number; landWithin2: number; outs: Outs[]; cards: (Card & { nextDraw: number })[] }
 }
 
 export interface GameRecord {
@@ -396,7 +438,20 @@ export interface ConstructedDeck extends ConstructedDeckSummary {
   text: string
   stats: RecordBreakdown
   recent: { id: string; time: string; result: string; eventId: string; onPlay: boolean | null; opponent: string; colors: string[] }[]
+  versions: DeckVersion[]
+  guides: SideboardGuide[]
+  sideboardHistory: (WinLoss & { key: string; in: DeckEntry[]; out: DeckEntry[]; time: string })[]
   unknown?: string[]
+}
+
+export interface DeckVersion {
+  key: string
+  at: string
+  count: number
+  current: boolean
+  added: DeckEntry[]
+  removed: DeckEntry[]
+  record: WinLoss
 }
 
 export interface ConstructedStats extends RecordBreakdown {

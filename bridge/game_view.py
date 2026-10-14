@@ -19,7 +19,7 @@ from typing import Callable, Dict, List, Optional
 from src import constants
 
 from bridge.arena_cards import arena_cards
-from bridge.decks import is_limited_event
+from bridge.decks import is_limited_event, pick_guide
 from bridge.game import Game, GameTracker
 from bridge.serialize import serialize_card
 
@@ -196,10 +196,13 @@ def _side(game: Game, seat: int, resolve: Resolver) -> Dict:
     }
 
 
-def _opponent_profile(game: Game, resolve: Resolver) -> Dict:
+def _opponent_profile(game: Game, resolve: Resolver, earlier: Optional[Counter] = None) -> Dict:
+    """Colors and archetype from this game's revealed cards plus `earlier` games of the match;
+    `seen` lists this game's cards only."""
     counts = Counter(game.opp_seen.values())
+    known = counts | (earlier or Counter())
     pips = Counter()
-    for grp, n in counts.items():
+    for grp, n in known.items():
         card = resolve(grp)
         if card and "Land" not in card.get("types", []):
             for c in card.get("colors", []) or []:
@@ -207,7 +210,7 @@ def _opponent_profile(game: Game, resolve: Resolver) -> Dict:
     colors = [c for c in COLORS if pips[c]]
     top = [c for c, _ in pips.most_common(2)]
     seen = sorted(merge_by_name([_card(resolve, g, n) for g, n in counts.items()]), key=lambda c: (c["cmc"], c["name"]))
-    raw = [dict(resolve(g) or {}, count=n) for g, n in counts.items()]
+    raw = [dict(resolve(g) or {}, count=n) for g, n in known.items()]
     return {
         "colors": colors,
         "archetype": "".join(c for c in COLORS if c in top),
@@ -323,13 +326,89 @@ def similar_opponents(seen_names: List[str], history: List[Dict], exclude_match:
             names[(r.get("opponent") or {}).get("archetypeName") or ""] += 1
     if not matches:
         return None
+    return _similar_summary(matches, freq, names, "cards")
+
+
+def opponents_by_colors(colors: List[str], seen_names: List[str], history: List[Dict], exclude_match: str = "") -> Optional[Dict]:
+    """Fallback when no past opponent shares cards yet: past opponents on exactly these colors."""
+    key = color_key(colors)
+    if not key:
+        return None
+    current = {n for n in seen_names if not _is_land_name(n)}
+    matches, freq, names = [], Counter(), Counter()
+    for r in history:
+        opp = r.get("opponent") or {}
+        if r.get("matchId") == exclude_match or r.get("format") == "limited" or color_key(opp.get("colors", [])) != key:
+            continue
+        matches.append(r)
+        freq.update({c["name"] for c in opp.get("cards", []) if not _is_land_name(c["name"])} - current)
+        names[opp.get("archetypeName") or ""] += 1
+    if not matches:
+        return None
+    return _similar_summary(matches, freq, names, "colors")
+
+
+def _similar_summary(matches: List[Dict], freq: Counter, names: Counter, basis: str) -> Dict:
     wins = sum(1 for r in matches if r.get("result") == "win")
     losses = sum(1 for r in matches if r.get("result") == "loss")
     label = next((n for n, _ in names.most_common() if n), "")
+    cards = []
+    for name, k in freq.most_common(12):
+        card = arena_cards.lookup(name)
+        view = serialize_card(dict(card, count=1)) if card else {"name": name, "cmc": 0, "manaCost": "", "types": [], "colors": [], "images": []}
+        view["games"] = k
+        cards.append(view)
+    return {"games": len(matches), "wins": wins, "losses": losses, "archetype": label, "basis": basis, "cards": cards}
+
+
+def versus(name: str, history: List[Dict], exclude_match: str = "") -> Optional[Dict]:
+    """Your past games against this exact opponent."""
+    if not name:
+        return None
+    games = [r for r in history if (r.get("opponent") or {}).get("name") == name and r.get("matchId") != exclude_match]
+    if not games:
+        return None
+    games.sort(key=lambda r: r.get("time", ""))
+    shown = Counter(c["name"] for r in games for c in (r.get("opponent") or {}).get("cards", []) if not _is_land_name(c["name"]))
     return {
-        "games": len(matches), "wins": wins, "losses": losses, "archetype": label,
-        "cards": [{"name": n, "games": k} for n, k in freq.most_common(12)],
+        "games": len(games),
+        "wins": sum(1 for r in games if r.get("result") == "win"),
+        "losses": sum(1 for r in games if r.get("result") == "loss"),
+        "last": games[-1].get("time", ""),
+        "archetypes": sorted({(r.get("opponent") or {}).get("archetypeName") or "" for r in games} - {""}),
+        "cards": [n for n, _ in shown.most_common(10)],
     }
+
+
+OUT_ROLES = (
+    ("land", "Land", lambda c: "Land" in c["types"]),
+    ("creature", "Creature", lambda c: "Creature" in c["types"]),
+    ("removal", "Interaction", lambda c: "removal" in (c.get("tags") or [])),
+    ("draw", "Card draw", lambda c: "card_advantage" in (c.get("tags") or [])),
+)
+
+
+def outs(cards: List[Dict], library: int) -> List[Dict]:
+    """Chance to draw each kind of card within the next 1, 2 and 3 draws."""
+    out = []
+    for key, label, test in OUT_ROLES:
+        copies = sum(c["count"] for c in cards if test(c))
+        if copies:
+            out.append({"key": key, "label": label, "copies": copies, "odds": [_hypergeom_any(copies, library, k) for k in (1, 2, 3)]})
+    return out
+
+
+def opponent_plays(game: Game, resolve: Resolver) -> List[Dict]:
+    """What the opponent cast or played each turn, oldest first."""
+    turns: Dict[int, List[Dict]] = {}
+    for e in game.events:
+        if e["mine"] or e["action"] not in ("cast", "played"):
+            continue
+        card = resolve(e["grpId"]) or {}
+        turns.setdefault(e["turn"], []).append({
+            "name": card.get("name") or f"Card #{e['grpId']}", "land": e["action"] == "played", "cmc": card.get("cmc", 0) or 0,
+        })
+    return [{"turn": t, "plays": p} for t, p in sorted(turns.items())]
 
 
 # ---- mulligan ---------------------------------------------------------------------
@@ -417,7 +496,7 @@ def game_format(game: Game) -> str:
     return "constructed" if game.event_id and not is_limited_event(game.event_id) else "limited"
 
 
-def build_view(tracker: GameTracker, set_data, history: Optional[List[Dict]] = None) -> Optional[Dict]:
+def build_view(tracker: GameTracker, set_data, history: Optional[List[Dict]] = None, library=None) -> Optional[Dict]:
     game = tracker.game
     if not game:
         return None
@@ -435,16 +514,24 @@ def build_view(tracker: GameTracker, set_data, history: Optional[List[Dict]] = N
     cards.sort(key=lambda c: (-c["count"], c["cmc"], c["name"]))
 
     opp_side = _side(game, opp, resolve)
-    profile = _opponent_profile(game, resolve)
+    constructed = fmt == "constructed"
+    profile = _opponent_profile(game, resolve, game.match_opp if constructed else None)
     history = history if history is not None else load_history_cached()
-    similar = None
-    if fmt == "constructed":
+    similar, guide = None, None
+    if constructed:
         seen_names = [c["name"] for c in profile["seen"]] + [_name(resolve, g) for g in game.match_opp]
-        similar = similar_opponents(seen_names, history, game.match_id)
+        similar = similar_opponents(seen_names, history, game.match_id) or opponents_by_colors(profile["colors"], seen_names, history, game.match_id)
         tricks = _constructed_tricks(game, resolve, opp_side["lands"]["untapped"], opp_side["lands"]["colors"], similar)
+        deck = library.decks.get(game.deck_id) if library and game.deck_id else None
+        picked = pick_guide((deck or {}).get("guides") or {}, profile["archetypeName"])
+        if picked:
+            guide = {"key": picked[0], **picked[1]}
     else:
         tricks = _tricks(set_data, profile["colors"], opp_side["lands"]["untapped"], opp_side["lands"]["colors"])
-    match_games = [r for r in history if r.get("matchId") == game.match_id and r.get("gameNumber") != game.game_number]
+    match_games = sorted(
+        (r for r in history if r.get("matchId") == game.match_id and r.get("gameNumber") != game.game_number),
+        key=lambda r: r.get("gameNumber", 1),
+    )
     turn = game.turn
     return {
         "matchId": game.match_id,
@@ -456,6 +543,9 @@ def build_view(tracker: GameTracker, set_data, history: Optional[List[Dict]] = N
             "wins": sum(1 for r in match_games if r.get("result") == "win"),
             "losses": sum(1 for r in match_games if r.get("result") == "loss"),
             "sideboard": sideboard_changes(game, resolve),
+            "games": [{"gameNumber": r.get("gameNumber", 1), "result": r.get("result"), "onPlay": r.get("onPlay"), "turns": r.get("turns", 0)} for r in match_games],
+            "sideboarding": tracker.sideboarding == game.match_id,
+            "guide": guide,
         },
         "active": not game.over,
         "result": game.result,
@@ -465,7 +555,10 @@ def build_view(tracker: GameTracker, set_data, history: Optional[List[Dict]] = N
         "myTurn": turn.get("activePlayer") == me,
         "onPlay": game.on_play,
         "me": _side(game, me, resolve),
-        "opponent": {**opp_side, **profile, "name": game.opponent_name, "similar": similar},
+        "opponent": {
+            **opp_side, **profile, "name": game.opponent_name, "similar": similar,
+            "plays": opponent_plays(game, resolve), "versus": versus(game.opponent_name, history, game.match_id),
+        },
         "tricks": tricks,
         "mulligan": _mulligan(game, resolve),
         "library": {
@@ -473,6 +566,7 @@ def build_view(tracker: GameTracker, set_data, history: Optional[List[Dict]] = N
             "tracked": bool(game.deck),
             "landNext": lands_left / denom if denom else 0,
             "landWithin2": _hypergeom_any(lands_left, denom, 2),
+            "outs": outs(cards, denom),
             "cards": cards,
         },
     }
@@ -506,7 +600,7 @@ def build_record(game: Game, set_data) -> Dict:
         verdict = "flood"
     else:
         verdict = "smooth"
-    profile = _opponent_profile(game, resolve)
+    profile = _opponent_profile(game, resolve, game.match_opp if fmt == "constructed" else None)
     hand_mulls = max(0, 7 - len(game.opening_hand)) if game.opening_hand else 0
     return {
         "id": game.key,

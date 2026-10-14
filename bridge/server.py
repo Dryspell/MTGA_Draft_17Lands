@@ -118,8 +118,9 @@ async def _poll_game():
         await asyncio.to_thread(state.decks.save)
         state.decks_version += 1
         await state.broadcast({"type": "decks", "version": state.decks_version})
-    if changed:
-        state.game_view = await asyncio.to_thread(game_view.build_view, state.games, state.scanner.set_data)
+    if changed or state.refresh_game:
+        state.refresh_game = False
+        state.game_view = await asyncio.to_thread(game_view.build_view, state.games, state.scanner.set_data, None, state.decks)
         await state.broadcast({"type": "game", "game": state.game_view})
 
 

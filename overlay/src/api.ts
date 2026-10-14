@@ -95,6 +95,10 @@ export const api = {
   constructedStats: () => get<ConstructedStats>('/api/constructed/stats'),
   matches: () => get<MatchSummary[]>('/api/matches'),
   setMatchNote: (id: string, note: string) => request('PUT', `/api/matches/${encodeURIComponent(id)}/note`, { note }),
+  saveGuide: (id: string, key: string, ins: DeckEntry[], outs: DeckEntry[], note: string) =>
+    request<ConstructedDeck>('PUT', `/api/constructed/decks/${encodeURIComponent(id)}/guides`, { key, ins, outs, note }),
+  deleteGuide: (id: string, key: string) =>
+    request<ConstructedDeck>('DELETE', `/api/constructed/decks/${encodeURIComponent(id)}/guides/${encodeURIComponent(key)}`),
 }
 
 export const toEntries = (cards: Card[]): DeckEntry[] => cards.map((c) => ({ name: c.name, count: c.count }))
