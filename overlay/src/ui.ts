@@ -3,14 +3,14 @@ import type { Card, DeckVariant } from './types'
 import { useApp } from './store'
 import type { FormatContext } from './lib/cards'
 
-export type Tab = 'draft' | 'game' | 'deck' | 'data' | 'settings'
+export type Tab = 'draft' | 'game' | 'deck' | 'decks' | 'data' | 'settings'
 
 const LEGACY_TABS: Record<string, Tab> = { pool: 'deck', builder: 'deck', custom: 'deck', sealed: 'deck', tiers: 'data', datasets: 'data', compare: 'draft' }
 
 export function storedTab(value: string | null): Tab {
   if (!value) return 'draft'
   if (value in LEGACY_TABS) return LEGACY_TABS[value]
-  return ['draft', 'game', 'deck', 'data', 'settings'].includes(value) ? (value as Tab) : 'draft'
+  return ['draft', 'game', 'deck', 'decks', 'data', 'settings'].includes(value) ? (value as Tab) : 'draft'
 }
 
 export interface UiState {

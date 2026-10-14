@@ -25,6 +25,8 @@ class BridgeState:
         self.sealed_sessions: Dict[str, dict] = {}
         self.games = None
         self.game_view: Optional[dict] = None
+        self.decks = None
+        self.decks_version = 0
 
     @property
     def ready(self) -> bool:

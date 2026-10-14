@@ -64,18 +64,39 @@ export function MiniView() {
   )
 }
 
+const MULL_TONE = {
+  keep: 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/40',
+  risky: 'bg-amber-400/15 text-amber-300 ring-amber-400/40',
+  mulligan: 'bg-red-500/15 text-red-300 ring-red-400/40',
+}
+
 function MiniGame({ game }: { game: GameView }) {
   if (!game.active) return <Empty title={game.result ? `Last game: ${game.result}` : 'No game in progress'}>Open the full window's Game tab for the review.</Empty>
   const { me, opponent: opp, library } = game
   return (
     <div className="flex min-h-0 flex-col gap-2 overflow-y-auto text-[12px]">
       <div className="flex items-center justify-between rounded-lg bg-panel px-3 py-2">
-        <div>
-          <div className="font-semibold text-white">Turn {game.turn}{game.myTurn ? ' · you' : ''}</div>
-          <div className="text-[10px] text-stone-500">{phaseLabel(game.phase, game.step)}</div>
+        <div className="min-w-0">
+          <div className="font-semibold text-white">{game.turn > 0 ? `Turn ${game.turn}${game.myTurn ? ' · you' : ''}` : 'Opening hand'}</div>
+          <div className="truncate text-[10px] text-stone-500">
+            {[
+              game.turn > 0 && phaseLabel(game.phase, game.step),
+              game.gameNumber > 1 && `G${game.gameNumber} ${game.match.wins}–${game.match.losses}`,
+              game.format === 'constructed' && opp.colors.length > 0 && `vs ${opp.archetypeName}`,
+            ].filter(Boolean).join(' · ')}
+          </div>
         </div>
         <div className="tabular text-[18px] font-bold"><span className="text-white">{me.life}</span><span className="mx-1 text-stone-600">–</span><span className="text-red-300">{opp.life}</span></div>
       </div>
+      {game.mulligan && (
+        <div className={`rounded-lg px-3 py-2 ring-1 ${MULL_TONE[game.mulligan.verdict]}`}>
+          <div className="font-semibold">
+            {game.mulligan.verdict === 'keep' ? 'Keep' : game.mulligan.verdict === 'risky' ? 'Risky keep' : 'Mulligan'}
+            <span className="ml-2 text-[11px] font-normal text-stone-300">3 lands by T3 {Math.round(game.mulligan.landBy3 * 100)}%</span>
+          </div>
+          {game.mulligan.reasons.slice(0, 2).map((r) => <div key={r} className="text-[11px] text-stone-300">{r}</div>)}
+        </div>
+      )}
       {library.tracked && (
         <Section title={`Library ${library.size}`} right={<span className="text-[11px] text-stone-400">land next {Math.round(library.landNext * 100)}%</span>}>
           {library.cards.filter((c) => !c.types.includes('Land')).slice(0, 6).map((c) => (
@@ -85,7 +106,10 @@ function MiniGame({ game }: { game: GameView }) {
       )}
       <Section title={`Opponent could have · ${opp.lands.untapped} open`}>
         {game.tricks.length ? game.tricks.slice(0, 5).map((c) => (
-          <div key={c.name} className="flex justify-between gap-2 text-stone-300"><span className="truncate">{c.name}</span><span className="shrink-0 text-[10px] text-stone-500">{c.trickKind}</span></div>
+          <div key={c.name} className="flex justify-between gap-2 text-stone-300">
+            <span className="truncate">{c.name}</span>
+            <span className={`shrink-0 text-[10px] ${c.source === 'revealed' ? 'text-amber-300' : 'text-stone-500'}`}>{c.trickKind}{c.source === 'revealed' ? ' · revealed' : ''}</span>
+          </div>
         )) : <span className="text-stone-500">{opp.lands.untapped ? 'Nothing fits their mana.' : 'Tapped out.'}</span>}
       </Section>
     </div>

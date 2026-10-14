@@ -14,6 +14,7 @@ import { CompareDrawer } from './components/CompareDrawer'
 import { DraftView } from './views/DraftView'
 import { GameTab } from './views/GameTab'
 import { DeckView } from './views/DeckView'
+import { ConstructedView } from './views/ConstructedView'
 import { DataView } from './views/DataView'
 import { SettingsView } from './views/SettingsView'
 import { MiniView } from './views/MiniView'
@@ -22,6 +23,7 @@ const VIEWS = {
   draft: DraftView,
   game: GameTab,
   deck: DeckView,
+  decks: ConstructedView,
   data: DataView,
   settings: SettingsView,
 }

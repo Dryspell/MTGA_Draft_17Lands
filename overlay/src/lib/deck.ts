@@ -42,6 +42,19 @@ export const count = (cards: Card[]) => cards.reduce((n, c) => n + c.count, 0)
 
 export const entries = (cards: Card[]): DeckEntry[] => cards.map((c) => ({ name: c.name, count: c.count }))
 
+function choose(n: number, k: number) {
+  if (k < 0 || k > n) return 0
+  let r = 1
+  for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i
+  return r
+}
+
+/** Chance of exactly k lands in an opening hand, for k = 0..hand. */
+export function openingLands(lands: number, size: number, hand = 7): number[] {
+  const total = choose(size, hand)
+  return Array.from({ length: hand + 1 }, (_, k) => (total ? (choose(lands, k) * choose(size - lands, hand - k)) / total : 0))
+}
+
 /** Seven random cards from the deck, expanded by count. */
 export function sampleHand(deck: Card[], size = 7): Card[] {
   const library = deck.flatMap((c) => Array.from({ length: c.count }, () => ({ ...c, count: 1 })))

@@ -11,7 +11,8 @@ const icon = (d: ReactNode) => (
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'draft', label: 'Draft', icon: icon(<><rect x="3" y="4" width="9" height="12" rx="1.5" /><path d="M14 6.5 17 7.5l-2.5 9-3-.8" /></>) },
   { id: 'game', label: 'Game: live analysis & history', icon: icon(<><path d="M4 3.5 12.5 12M3.5 3.5h3v3M16 3.5 7.5 12M16.5 3.5h-3v3" /><path d="m5.5 12.5 2 2M14.5 12.5l-2 2M4 16l2.5-2.5M16 16l-2.5-2.5" /></>) },
-  { id: 'deck', label: 'Deck', icon: icon(<><rect x="3" y="6" width="8" height="11" rx="1.2" /><path d="M6 6V4.2A1.2 1.2 0 0 1 7.2 3h6.6A1.2 1.2 0 0 1 15 4.2v8.6a1.2 1.2 0 0 1-1.2 1.2H11" /><path d="M14.5 7h1.3A1.2 1.2 0 0 1 17 8.2v6.6" /></>) },
+  { id: 'deck', label: 'Draft deck: build from your limited pool', icon: icon(<><rect x="3" y="6" width="8" height="11" rx="1.2" /><path d="M6 6V4.2A1.2 1.2 0 0 1 7.2 3h6.6A1.2 1.2 0 0 1 15 4.2v8.6a1.2 1.2 0 0 1-1.2 1.2H11" /><path d="M14.5 7h1.3A1.2 1.2 0 0 1 17 8.2v6.6" /></>) },
+  { id: 'decks', label: 'Constructed: your Arena decks, collection & records', icon: icon(<><path d="M10 2.5 17 6l-7 3.5L3 6l7-3.5Z" /><path d="m3 10 7 3.5 7-3.5M3 14l7 3.5 7-3.5" /></>) },
   { id: 'data', label: 'Data: 17Lands datasets & tier lists', icon: icon(<><ellipse cx="10" cy="5" rx="6" ry="2.5" /><path d="M4 5v10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5M4 10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5" /></>) },
 ]
 

@@ -6,8 +6,10 @@ Local HTTP/WebSocket API exposing the draft engine to the React overlay.
 import argparse
 import asyncio
 import logging
+import os
 import queue
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +18,9 @@ from src.boot import load_data
 from src.configuration import read_configuration
 from src.ui.orchestrator import DraftOrchestrator
 
-from bridge import game_view, routes_data, routes_decks, routes_draft, routes_game
+from bridge import game_view, routes_constructed, routes_data, routes_decks, routes_draft, routes_game
+from bridge.arena_cards import arena_cards
+from bridge.decks import TRACKED_API, DeckLibrary
 from bridge.game import GameTracker
 from bridge.jobs import list_jobs
 from bridge.snapshot import build_snapshot
@@ -42,19 +46,79 @@ async def _boot(args):
     state.scanner = data["scanner"]
     state.orchestrator = DraftOrchestrator(state.scanner, state.config, None)
     state.orchestrator.start()
-    state.games = GameTracker(_record_game)
+    await asyncio.to_thread(_load_cards)
+    state.decks = DeckLibrary(arena_cards)
+    # Older log first, so its deck lists never overwrite newer ones.
+    await asyncio.to_thread(_backfill_previous_log)
+    state.games = _tracker()
     await state.set_status("Ready")
     await refresh()
+
+
+def _load_cards():
+    try:
+        arena_cards.load(state.config.settings.database_location)
+    except Exception as e:
+        logger.error(f"Arena card database unavailable: {e}", exc_info=True)
+
+
+def _tracker(**callbacks) -> GameTracker:
+    return GameTracker(
+        callbacks.get("on_game_over", _record_game),
+        on_api=state.decks.handle,
+        api_names=TRACKED_API,
+        on_new_game=callbacks.get("on_new_game", _tag_game),
+        on_match_over=_record_match,
+    )
+
+
+def _tag_game(game):
+    if game_view.game_format(game) != "constructed":
+        return
+    deck = state.decks.identify(game.event_id, game.deck)
+    if deck:
+        game.deck_id, game.deck_name = deck["id"], deck.get("name", "")
+    state.decks.note_played(game.deck)
 
 
 def _record_game(game):
     game_view.append_history(game_view.build_record(game, state.scanner.set_data))
 
 
+def _record_match(match_id, result, event_id, stamp):
+    when = datetime.fromtimestamp(stamp).isoformat(timespec="seconds") if stamp else None
+    game_view.update_match(match_id, result=result, eventId=event_id, time=when)
+
+
+def _backfill_previous_log():
+    """Learn decks and games from Player-prev.log once per rotation."""
+    current = state.scanner.arena_file if state.scanner else None
+    if not current:
+        return
+    prev = os.path.join(os.path.dirname(current), "Player-prev.log")
+    if not os.path.exists(prev):
+        return
+    stamp = f"{os.path.getsize(prev)}:{int(os.path.getmtime(prev))}"
+    if state.decks.backfilled == stamp:
+        return
+    try:
+        _tracker().poll(prev)
+    except Exception as e:
+        logger.error(f"Reading Player-prev.log failed: {e}", exc_info=True)
+    state.decks.backfilled = stamp
+    state.decks.dirty = True
+    state.decks.save()
+
+
 async def _poll_game():
     if not state.games:
         return
-    if await asyncio.to_thread(state.games.poll, state.scanner.arena_file):
+    changed = await asyncio.to_thread(state.games.poll, state.scanner.arena_file)
+    if state.decks.dirty:
+        await asyncio.to_thread(state.decks.save)
+        state.decks_version += 1
+        await state.broadcast({"type": "decks", "version": state.decks_version})
+    if changed:
         state.game_view = await asyncio.to_thread(game_view.build_view, state.games, state.scanner.set_data)
         await state.broadcast({"type": "game", "game": state.game_view})
 
@@ -122,6 +186,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
     app.include_router(routes_data.router)
     app.include_router(routes_decks.router)
     app.include_router(routes_game.router)
+    app.include_router(routes_constructed.router)
 
     @app.get("/api/jobs")
     def jobs():

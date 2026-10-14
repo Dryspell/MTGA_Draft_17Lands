@@ -34,12 +34,20 @@ def _detail(annotation: Dict, key: str):
 class Game:
     """State of a single game within a match."""
 
-    def __init__(self, match_id: str, game_number: int, seat: int, event_id: str, deck: List[int]):
+    def __init__(self, match_id: str, game_number: int, seat: int, event_id: str, deck: List[int], sideboard: Optional[List[int]] = None):
         self.match_id = match_id
         self.game_number = game_number
         self.seat = seat
         self.event_id = event_id
         self.deck = list(deck)
+        self.sideboard = list(sideboard or [])
+        self.opponent_name = ""
+        self.deck_id: Optional[str] = None
+        self.deck_name = ""
+        self.mulligans = 0
+        self.deciding_mulligan = False
+        self.first_deck = list(deck)
+        self.match_opp: Counter = Counter()
         self.objects: Dict[int, Dict] = {}
         self.zones: Dict[int, Dict] = {}
         self.players: Dict[int, Dict] = {}
@@ -138,6 +146,9 @@ class Game:
             seat = p.get("systemSeatNumber")
             if seat is not None:
                 self.players[seat] = {**self.players.get(seat, {}), **p}
+                if seat == self.seat:
+                    self.mulligans = max(self.mulligans, int(p.get("mulliganCount", 0) or 0))
+                    self.deciding_mulligan = p.get("pendingMessageType") == "ClientMessageType_MulliganResp"
         if gs.get("turnInfo"):
             info = gs["turnInfo"]
             if "phase" in info and "step" not in info:
@@ -148,6 +159,8 @@ class Game:
 
         turn = self.turn.get("turnNumber", 0)
         active = self.turn.get("activePlayer")
+        if turn >= 1:
+            self.deciding_mulligan = False
         if turn >= 1 and active is not None:
             if self.on_play is None:
                 self.on_play = active == self.seat
@@ -209,10 +222,28 @@ class Game:
 
 
 class GameTracker:
-    """Tails Player.log for game messages. Not thread-safe; drive it from one place."""
+    """Tails Player.log for game messages. Not thread-safe; drive it from one place.
 
-    def __init__(self, on_game_over: Callable[[Game], None] = lambda g: None):
+    `on_api(direction, name, payload)` receives front-door API traffic (decks,
+    events, inventory); `on_new_game(game)` lets the owner tag a game when it starts;
+    `on_match_over(match_id, result, event_id, timestamp)` fires when Arena reports a match result."""
+
+    def __init__(
+        self,
+        on_game_over: Callable[[Game], None] = lambda g: None,
+        on_api: Optional[Callable[[str, str, Dict], None]] = None,
+        api_names: tuple = (),
+        on_new_game: Callable[[Game], None] = lambda g: None,
+        on_match_over: Callable[[str, str, str, Optional[float]], None] = lambda m, r, e, t: None,
+    ):
         self.on_game_over = on_game_over
+        self.on_api = on_api
+        self.api_names = tuple(n.encode() for n in api_names)
+        self.on_new_game = on_new_game
+        self.on_match_over = on_match_over
+        self._reset()
+
+    def _reset(self):
         self.path: Optional[str] = None
         self.offset = 0
         self.version = 0
@@ -220,8 +251,13 @@ class GameTracker:
         self.event_id = ""
         self.match_id: Optional[str] = None
         self.deck: List[int] = []
+        self.sideboard: List[int] = []
+        self.names: Dict[int, str] = {}
+        self.finished: set = set()
         self.game: Optional[Game] = None
         self.timestamp: Optional[float] = None
+        self._pending_api: Optional[str] = None
+        self._client_block: Optional[List[str]] = None
 
     def poll(self, path: Optional[str]) -> bool:
         """Read new log lines; returns True if the game model changed."""
@@ -229,7 +265,7 @@ class GameTracker:
             return False
         size = os.path.getsize(path)
         if path != self.path or size < self.offset:
-            self.__init__(self.on_game_over)
+            self._reset()
             self.path = path
         if size == self.offset:
             return False
@@ -242,9 +278,62 @@ class GameTracker:
         self.offset += end + 1
         before = self.version
         for raw in chunk[: end + 1].split(b"\n"):
-            if b"greToClientEvent" in raw or b"matchGameRoomStateChangedEvent" in raw:
-                self.feed_line(raw.decode("utf-8", errors="replace"))
+            self.feed_raw(raw)
         return self.version != before
+
+    def feed_raw(self, raw: bytes):
+        if self._client_block is not None:
+            line = raw.rstrip(b"\r").decode("utf-8", errors="replace")
+            self._client_block.append(line)
+            if line == "}":
+                self._client_message("\n".join(self._client_block))
+                self._client_block = None
+            elif len(self._client_block) > 5000:
+                self._client_block = None
+            return
+        if self._pending_api:
+            name, self._pending_api = self._pending_api, None
+            text = raw.decode("utf-8", errors="replace").strip()
+            if text.startswith("{") and self.on_api:
+                try:
+                    self.on_api("response", name, json.loads(text))
+                except ValueError:
+                    pass
+            return
+        if b"greToClientEvent" in raw or b"matchGameRoomStateChangedEvent" in raw:
+            self.feed_line(raw.decode("utf-8", errors="replace"))
+        elif b"to Match: ClientToGremessage" in raw:
+            self._client_block = []
+        elif self.on_api and (b"==> " in raw or raw.startswith(b"<== ")) and any(n in raw for n in self.api_names):
+            self._api_line(raw.decode("utf-8", errors="replace"))
+
+    def _api_line(self, line: str):
+        if line.startswith("<== "):
+            name = line[4:].split("(", 1)[0].strip()
+            self._pending_api = name
+            return
+        head, _, body = line.partition("==> ")
+        name, _, rest = body.partition(" ")
+        start = rest.find("{")
+        if start < 0:
+            return
+        try:
+            self.on_api("request", name, json.loads(rest[start:]))
+        except ValueError:
+            pass
+
+    def _client_message(self, text: str):
+        if "SubmitDeckResp" not in text:
+            return
+        start = text.find("{")
+        try:
+            payload = json.loads(text[start:]).get("payload", {})
+        except ValueError:
+            return
+        deck = (payload.get("submitDeckResp") or {}).get("deck") or {}
+        if deck.get("deckCards"):
+            self.deck = list(deck["deckCards"])
+            self.sideboard = list(deck.get("sideboardCards") or [])
 
     def feed_line(self, line: str):
         start = line.find("{")
@@ -254,13 +343,13 @@ class GameTracker:
             data = json.loads(line[start:])
         except ValueError:
             return
+        try:
+            self.timestamp = int(data.get("timestamp")) / 1000
+        except (TypeError, ValueError):
+            self.timestamp = None
         if "matchGameRoomStateChangedEvent" in data:
             self._room(data["matchGameRoomStateChangedEvent"].get("gameRoomInfo", {}))
         elif "greToClientEvent" in data:
-            try:
-                self.timestamp = int(data.get("timestamp")) / 1000
-            except (TypeError, ValueError):
-                self.timestamp = None
             for msg in data["greToClientEvent"].get("greToClientMessages", []):
                 self._gre(msg)
 
@@ -275,6 +364,20 @@ class GameTracker:
         for p in config.get("reservedPlayers", []):
             if p.get("eventId"):
                 self.event_id = p["eventId"]
+            if p.get("systemSeatId") is not None and p.get("playerName"):
+                self.names[p["systemSeatId"]] = p["playerName"]
+        final = info.get("finalMatchResult") or {}
+        if final.get("matchId") and final["matchId"] not in self.finished:
+            self.finished.add(final["matchId"])
+            seat = self.game.seat if self.game and self.game.match_id == final["matchId"] else (self.seat or 1)
+            result = "draw"
+            for r in final.get("resultList", []):
+                if r.get("scope") == "MatchScope_Match":
+                    result = "draw" if r.get("result") == "ResultType_Draw" else ("win" if r.get("winningTeamId") == seat else "loss")
+            try:
+                self.on_match_over(final["matchId"], result, self.event_id, self.timestamp)
+            except Exception as e:
+                logger.error(f"Recording match failed: {e}", exc_info=True)
 
     def _gre(self, msg: Dict):
         kind = msg.get("type")
@@ -282,11 +385,14 @@ class GameTracker:
         if seats:
             self.seat = seats[0]
         if kind == "GREMessageType_ConnectResp":
-            self.deck = list((msg.get("connectResp", {}).get("deckMessage") or {}).get("deckCards", []))
+            deck = msg.get("connectResp", {}).get("deckMessage") or {}
+            self.deck = list(deck.get("deckCards", []))
+            self.sideboard = list(deck.get("sideboardCards", []))
         elif kind == "GREMessageType_SubmitDeckReq":
-            deck = (msg.get("submitDeckReq", {}).get("deck") or {}).get("deckCards")
-            if deck:
-                self.deck = list(deck)
+            deck = msg.get("submitDeckReq", {}).get("deck") or {}
+            if deck.get("deckCards"):
+                self.deck = list(deck["deckCards"])
+                self.sideboard = list(deck.get("sideboardCards") or [])
         elif kind in ("GREMessageType_GameStateMessage", "GREMessageType_QueuedGameStateMessage"):
             gs = msg.get("gameStateMessage") or {}
             info = gs.get("gameInfo") or {}
@@ -294,7 +400,17 @@ class GameTracker:
             number = info.get("gameNumber")
             if number and (not self.game or self.game.match_id != match_id or self.game.game_number != number):
                 self.match_id = match_id
-                self.game = Game(match_id, number, self.seat or 1, self.event_id, self.deck)
+                prev = self.game if self.game and self.game.match_id == match_id else None
+                self.game = Game(match_id, number, self.seat or 1, self.event_id, self.deck, self.sideboard)
+                self.game.opponent_name = next((n for s, n in self.names.items() if s != self.game.seat), "")
+                if prev:
+                    self.game.first_deck = prev.first_deck
+                    self.game.match_opp = prev.match_opp | Counter(prev.opp_seen.values())
+                    self.game.deck_id, self.game.deck_name = prev.deck_id, prev.deck_name
+                try:
+                    self.on_new_game(self.game)
+                except Exception as e:
+                    logger.error(f"Tagging game failed: {e}", exc_info=True)
             if not self.game:
                 return
             was_over = self.game.over

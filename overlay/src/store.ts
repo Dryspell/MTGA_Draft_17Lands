@@ -16,6 +16,8 @@ export interface AppState {
   snapshot: Snapshot | null
   /** The game being played (or the last one), from Arena's game log. */
   game: GameView | null
+  /** Bumped whenever the bridge learns or changes constructed decks. */
+  decksVersion: number
   meta: Meta | null
   config: Config | null
   toasts: Toast[]

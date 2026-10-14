@@ -10,9 +10,10 @@ import subprocess
 import sys
 
 PROBE = (
-    "import json; from src import configuration, logger, constants, tier_list; from bridge import game_view; "
+    "import json; from src import configuration, logger, constants, tier_list; from bridge import arena_cards, decks, game_view; "
     "print(json.dumps([configuration.CONFIG_FILE, logger.DEBUG_LOG_FOLDER, constants.SETS_FOLDER, "
-    "constants.DRAFT_LOG_FOLDER, tier_list.TIER_FOLDER, game_view.HISTORY_FILE]))"
+    "constants.DRAFT_LOG_FOLDER, tier_list.TIER_FOLDER, game_view.HISTORY_FILE, game_view.MATCHES_FILE, "
+    "decks.DECKS_FILE, arena_cards.CACHE_FILE]))"
 )
 
 

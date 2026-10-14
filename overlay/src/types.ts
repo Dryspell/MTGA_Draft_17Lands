@@ -167,6 +167,7 @@ export type BridgeMessage =
   | { type: 'status'; status: string }
   | { type: 'snapshot'; snapshot: Snapshot }
   | { type: 'game'; game: GameView | null }
+  | { type: 'decks'; version: number }
   | ({ type: 'job' } & Job)
 
 export interface DeckEntry {
@@ -270,10 +271,46 @@ export interface GameSide {
   battlefield: BoardCard[]
 }
 
+export type GameFormat = 'limited' | 'constructed'
+
+export interface SideboardChanges {
+  in: DeckEntry[]
+  out: DeckEntry[]
+}
+
+/** Past opponents whose revealed spells overlap this one's, and what else they showed. */
+export interface SimilarOpponents {
+  games: number
+  wins: number
+  losses: number
+  archetype: string
+  cards: { name: string; games: number }[]
+}
+
+export interface MulliganAdvice {
+  verdict: 'keep' | 'risky' | 'mulligan'
+  handSize: number
+  mulligans: number
+  onPlay: boolean
+  lands: number
+  spells: number
+  colors: string[]
+  missingColors: string[]
+  landBy2: number
+  landBy3: number
+  landBy4: number
+  reasons: string[]
+}
+
+export type TrickCard = Card & { trickKind: string; source: 'set' | 'revealed' | 'seen before'; seenIn?: number }
+
 export interface GameView {
   matchId: string
   gameNumber: number
   eventId: string
+  format: GameFormat
+  deck: { id: string | null; name: string }
+  match: { wins: number; losses: number; sideboard: SideboardChanges }
   active: boolean
   result: 'win' | 'loss' | 'draw' | null
   turn: number
@@ -282,8 +319,9 @@ export interface GameView {
   myTurn: boolean
   onPlay: boolean | null
   me: GameSide
-  opponent: GameSide & { colors: string[]; archetype: string; seen: Card[] }
-  tricks: (Card & { trickKind: string })[]
+  opponent: GameSide & { name: string; colors: string[]; archetype: string; archetypeName: string; seen: Card[]; similar: SimilarOpponents | null }
+  tricks: TrickCard[]
+  mulligan: MulliganAdvice | null
   library: { size: number; tracked: boolean; landNext: number; landWithin2: number; cards: (Card & { nextDraw: number })[] }
 }
 
@@ -292,14 +330,90 @@ export interface GameRecord {
   matchId: string
   gameNumber: number
   eventId: string
+  format?: GameFormat
+  deckId?: string | null
+  deckName?: string
   time: string
   result: 'win' | 'loss' | 'draw'
   onPlay: boolean | null
   mulligans: number
   turns: number
   deck: DeckEntry[]
-  opponent: { colors: string[]; archetype: string; cards: DeckEntry[] }
+  sideboard?: SideboardChanges
+  opponent: { name?: string; colors: string[]; archetype: string; archetypeName?: string; cards: DeckEntry[] }
   mana: { cardsSeen: number; landsSeen: number; landPct: number; missedDrops: number[]; verdict: 'screw' | 'flood' | 'smooth' }
   life: [number, number, number][]
   timeline: { turn: number; mine: boolean; action: string; name: string }[]
+}
+
+export interface WinLoss {
+  wins: number
+  losses: number
+  games: number
+}
+
+export type KeyedWinLoss = WinLoss & { key: string }
+
+export interface ConstructedDeckSummary {
+  id: string
+  name: string
+  format: string
+  source: 'arena' | 'import'
+  known: boolean
+  count: number
+  colors: string[]
+  lastPlayed: string
+  lastUpdated: string
+  tileImage: string | null
+  record: WinLoss
+}
+
+export type DeckCard = Card & { grpId: number; text?: string; keywords?: string[] }
+
+export interface CollectionCheck {
+  cards: { name: string; need: number; owned: number; missing: number; rarity: string }[]
+  wildcards: Record<string, number>
+  balance: Record<string, number>
+  affordable: boolean | null
+  unknown?: string[]
+}
+
+export interface RecordBreakdown {
+  overall: WinLoss
+  onPlay: WinLoss
+  onDraw: WinLoss
+  byEvent: KeyedWinLoss[]
+  byOpponent: KeyedWinLoss[]
+  mulliganRate: number
+}
+
+export interface ConstructedDeck extends ConstructedDeckSummary {
+  main: DeckCard[]
+  side: DeckCard[]
+  commander: DeckCard[]
+  companions: DeckCard[]
+  collection: CollectionCheck
+  text: string
+  stats: RecordBreakdown
+  recent: { id: string; time: string; result: string; eventId: string; onPlay: boolean | null; opponent: string; colors: string[] }[]
+  unknown?: string[]
+}
+
+export interface ConstructedStats extends RecordBreakdown {
+  byDeck: (KeyedWinLoss & { name: string; onPlay: WinLoss; onDraw: WinLoss })[]
+  byOpponentColors: KeyedWinLoss[]
+}
+
+export interface MatchSummary {
+  matchId: string
+  eventId: string
+  format: GameFormat
+  time: string
+  result: 'win' | 'loss' | 'draw'
+  wins: number
+  losses: number
+  deckName: string
+  opponent: { name: string; archetypeName: string; colors: string[] }
+  note: string
+  games: { id: string; gameNumber: number; result: string; onPlay: boolean | null; turns: number; mulligans: number; sideboard: SideboardChanges }[]
 }

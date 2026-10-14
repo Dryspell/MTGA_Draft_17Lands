@@ -1,5 +1,6 @@
 import type {
-  Card, Config, DatasetFile, DeckEntry, DeckView, GameRecord, HistoryLog, Job, Meta, SealedState, SetOption, TierFile,
+  Card, CollectionCheck, Config, ConstructedDeck, ConstructedDeckSummary, ConstructedStats, DatasetFile, DeckEntry, DeckView,
+  GameRecord, HistoryLog, Job, MatchSummary, Meta, SealedState, SetOption, SimStats, TierFile,
 } from './types'
 
 export const HOST = import.meta.env.VITE_BRIDGE_HOST ?? '127.0.0.1:8617'
@@ -82,6 +83,18 @@ export const api = {
   sealedShells: (id: string) => post<Job<SealedState>>(`/api/sealed/${id}/shells`),
   sealedExport: (id: string, target: 'mtga' | 'sealeddeck') =>
     post<{ text: string; url?: string | null; error?: string }>(`/api/sealed/${id}/export?target=${target}`),
+
+  constructedDecks: () =>
+    get<{ decks: ConstructedDeckSummary[]; wildcards: Record<string, number>; currency: Record<string, number>; cardsLoaded: boolean; ownedKnown: number }>('/api/constructed/decks'),
+  constructedDeck: (id: string) => get<ConstructedDeck>(`/api/constructed/decks/${encodeURIComponent(id)}`),
+  importDeck: (text: string, name: string) => post<ConstructedDeck>('/api/constructed/import', { text, name }),
+  checkCollection: (text: string) => post<CollectionCheck>('/api/constructed/check', { text }),
+  renameDeck: (id: string, name: string) => request<ConstructedDeck>('PATCH', `/api/constructed/decks/${encodeURIComponent(id)}`, { name }),
+  deleteDeck: (id: string) => del(`/api/constructed/decks/${encodeURIComponent(id)}`),
+  analyzeConstructed: (id: string) => post<{ stats: SimStats | null; advice: string[] }>(`/api/constructed/decks/${encodeURIComponent(id)}/analyze`),
+  constructedStats: () => get<ConstructedStats>('/api/constructed/stats'),
+  matches: () => get<MatchSummary[]>('/api/matches'),
+  setMatchNote: (id: string, note: string) => request('PUT', `/api/matches/${encodeURIComponent(id)}/note`, { note }),
 }
 
 export const toEntries = (cards: Card[]): DeckEntry[] => cards.map((c) => ({ name: c.name, count: c.count }))

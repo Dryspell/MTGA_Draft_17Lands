@@ -8,6 +8,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState('Connecting to engine...')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [game, setGame] = useState<GameView | null>(null)
+  const [decksVersion, setDecksVersion] = useState(0)
   const [meta, setMeta] = useState<Meta | null>(null)
   const [config, setConfig] = useState<Config | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -55,6 +56,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (msg.status === 'Ready') refreshConfig()
         } else if (msg.type === 'snapshot') setSnapshot(msg.snapshot)
         else if (msg.type === 'game') setGame(msg.game)
+        else if (msg.type === 'decks') setDecksVersion(msg.version)
         else if (msg.type === 'job') onJob(msg)
       }
       ws.onclose = () => {
@@ -113,10 +115,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppState>(
     () => ({
-      connected, status, snapshot, game, meta, config, toasts,
+      connected, status, snapshot, game, decksVersion, meta, config, toasts,
       patchSettings, patchConfig, refreshConfig, runJob, toast, dismissToast,
     }),
-    [connected, status, snapshot, game, meta, config, toasts, patchSettings, patchConfig, refreshConfig, runJob, toast, dismissToast],
+    [connected, status, snapshot, game, decksVersion, meta, config, toasts, patchSettings, patchConfig, refreshConfig, runJob, toast, dismissToast],
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
