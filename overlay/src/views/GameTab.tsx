@@ -259,7 +259,17 @@ function OpponentPanel({ game }: { game: GameView }) {
   return (
     <Section
       title={`Opponent · ${opp.seen.length} cards seen`}
-      right={opp.colors.length > 0 && <span className="flex items-center gap-1.5 text-[11px] text-stone-400"><Pips colors={opp.colors} /> {constructed ? opp.archetypeName : `likely ${opp.archetype}`}</span>}
+      right={opp.colors.length > 0 && (
+        <span className="flex items-center gap-1.5 text-[11px] text-stone-400">
+          <Pips colors={opp.colors} /> {constructed ? opp.archetypeName : `likely ${opp.archetype}`}
+          {constructed && opp.meta && (
+            <span className="rounded bg-sky-500/15 px-1 text-[10px] text-sky-200"
+              title={`Tournament archetype, ${Math.round(opp.meta.share * 100)}% of the meta. Matched on ${opp.meta.matched.join(', ')}.${opp.localArchetype ? ` From colors alone: ${opp.localArchetype}.` : ''}`}>
+              meta {Math.round(opp.meta.share * 100)}%
+            </span>
+          )}
+        </span>
+      )}
     >
       {opp.versus && (
         <div className="mb-1.5 flex flex-wrap items-center gap-x-2 rounded bg-white/[0.03] px-2 py-1 text-[11px] text-stone-400">

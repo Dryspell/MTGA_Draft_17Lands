@@ -131,6 +131,9 @@ export interface Settings {
   missing_notifications_enabled: boolean
   auto_sync_datasets: boolean
   show_splash_screen: boolean
+  meta_enabled: boolean
+  meta_mtgtop8: boolean
+  meta_spicerack_key: string
   arena_log_location: string
   arena_log_pinned: boolean
   database_location: string
@@ -357,6 +360,8 @@ export interface GameView {
     colors: string[]
     archetype: string
     archetypeName: string
+    localArchetype?: string
+    meta?: MetaHit
     seen: Card[]
     similar: SimilarOpponents | null
     plays: { turn: number; plays: { name: string; land: boolean; cmc: number }[] }[]
@@ -441,7 +446,89 @@ export interface ConstructedDeck extends ConstructedDeckSummary {
   versions: DeckVersion[]
   guides: SideboardGuide[]
   sideboardHistory: (WinLoss & { key: string; in: DeckEntry[]; out: DeckEntry[]; time: string })[]
+  metaFormat: string
+  metaArchetypes: string[]
   unknown?: string[]
+}
+
+// ---- tournament metagame ----
+
+export type MetaSource = 'spicerack' | 'mtgtop8'
+
+export interface MetaHit {
+  id: string
+  name: string
+  share: number
+  source: MetaSource
+  score: number
+  matched: string[]
+}
+
+export interface MetaOverview {
+  enabled: boolean
+  mtgtop8: boolean
+  hasKey: boolean
+  suggested: string
+  formats: { format: string; sources: Record<MetaSource, boolean>; available: boolean; fetched: string; archetypes: number; stale: boolean; played: number }[]
+}
+
+export interface MetaCard {
+  name: string
+  inclusion: number
+  avg: number
+  land: boolean
+}
+
+export interface MetaDeck {
+  id: string
+  source: MetaSource
+  player: string
+  event: string
+  rank: string
+  date: string
+  url: string
+  wins?: number
+  losses?: number
+  main: DeckEntry[]
+  side: DeckEntry[]
+  cost?: { wildcards: Record<string, number>; affordable: boolean | null; missing: number } | null
+}
+
+export interface MetaArchetype {
+  id: string
+  name: string
+  style: string
+  share: number
+  source: MetaSource
+  url: string
+  colors: string[]
+  cards: MetaCard[]
+  deckCount: number
+  tournamentDecks: number
+  winRate: number | null
+  matches: number
+  decks: MetaDeck[]
+  record: WinLoss
+}
+
+export interface MetaFormatData {
+  format: string
+  enabled: boolean
+  fetched?: string
+  sources?: Partial<Record<MetaSource, { ok: boolean; error?: string; decks?: number; archetypes?: number }>>
+  archetypes: MetaArchetype[]
+  unmatched?: WinLoss
+  job?: Job | null
+}
+
+export interface MetaCompare {
+  format: string
+  archetype: Pick<MetaArchetype, 'id' | 'name' | 'share' | 'source' | 'colors' | 'deckCount' | 'winRate' | 'url'>
+  similarity: number
+  options: { id: string; name: string; similarity: number }[]
+  missing: { name: string; have: number; typical: number; inclusion: number; land: boolean }[]
+  extra: { name: string; count: number; inclusion: number }[]
+  nearest: (Omit<MetaDeck, 'main' | 'side' | 'cost'> & { add: DeckEntry[]; cut: DeckEntry[] }) | null
 }
 
 export interface DeckVersion {

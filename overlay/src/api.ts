@@ -1,6 +1,6 @@
 import type {
   Card, CollectionCheck, Config, ConstructedDeck, ConstructedDeckSummary, ConstructedStats, DatasetFile, DeckEntry, DeckView,
-  GameRecord, HistoryLog, Job, MatchSummary, Meta, SealedState, SetOption, SimStats, TierFile,
+  GameRecord, HistoryLog, Job, MatchSummary, Meta, MetaCompare, MetaFormatData, MetaOverview, SealedState, SetOption, SimStats, TierFile,
 } from './types'
 
 export const HOST = import.meta.env.VITE_BRIDGE_HOST ?? '127.0.0.1:8617'
@@ -99,6 +99,13 @@ export const api = {
     request<ConstructedDeck>('PUT', `/api/constructed/decks/${encodeURIComponent(id)}/guides`, { key, ins, outs, note }),
   deleteGuide: (id: string, key: string) =>
     request<ConstructedDeck>('DELETE', `/api/constructed/decks/${encodeURIComponent(id)}/guides/${encodeURIComponent(key)}`),
+
+  metagame: () => get<MetaOverview>('/api/metagame'),
+  metagameFormat: (format: string) => get<MetaFormatData>(`/api/metagame/${encodeURIComponent(format)}`),
+  refreshMetagame: (format: string) => post<Job>(`/api/metagame/${encodeURIComponent(format)}/refresh`),
+  importMetaDeck: (format: string, deckId: string) => post<ConstructedDeck>(`/api/metagame/${encodeURIComponent(format)}/import`, { deckId }),
+  compareMeta: (deckId: string, archetype = '') =>
+    get<{ format: string | null; enabled: boolean; compare?: MetaCompare | null }>(`/api/metagame/compare/${encodeURIComponent(deckId)}?archetype=${encodeURIComponent(archetype)}`),
 }
 
 export const toEntries = (cards: Card[]): DeckEntry[] => cards.map((c) => ({ name: c.name, count: c.count }))

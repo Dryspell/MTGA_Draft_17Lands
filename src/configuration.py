@@ -99,6 +99,11 @@ class Settings(BaseModel):
     auto_sync_datasets: bool = True
     show_splash_screen: bool = True
 
+    # Online tournament metagame data (overlay only; off unless the user opts in)
+    meta_enabled: bool = False
+    meta_mtgtop8: bool = False
+    meta_spicerack_key: str = ""
+
     # System Paths (Restored)
     arena_log_location: str = ""
     # True when the user set arena_log_location manually in Settings; a pinned

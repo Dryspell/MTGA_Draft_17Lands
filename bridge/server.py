@@ -18,11 +18,12 @@ from src.boot import load_data
 from src.configuration import read_configuration
 from src.ui.orchestrator import DraftOrchestrator
 
-from bridge import game_view, routes_constructed, routes_data, routes_decks, routes_draft, routes_game
+from bridge import game_view, routes_constructed, routes_data, routes_decks, routes_draft, routes_game, routes_meta
 from bridge.arena_cards import arena_cards
 from bridge.decks import TRACKED_API, DeckLibrary
 from bridge.game import GameTracker
 from bridge.jobs import list_jobs
+from bridge.meta import meta_store
 from bridge.snapshot import build_snapshot
 from bridge.state import state
 
@@ -38,6 +39,7 @@ async def refresh():
 async def _boot(args):
     state.loop = asyncio.get_running_loop()
     state.config, _ = read_configuration()
+    meta_store.settings = lambda: state.config.settings if state.config else None
 
     def progress(msg):
         asyncio.run_coroutine_threadsafe(state.set_status(msg), state.loop)
@@ -53,6 +55,7 @@ async def _boot(args):
     state.games = _tracker()
     await state.set_status("Ready")
     await refresh()
+    routes_meta.refresh_stale()
 
 
 def _load_cards():
@@ -82,7 +85,8 @@ def _tag_game(game):
 
 
 def _record_game(game):
-    game_view.append_history(game_view.build_record(game, state.scanner.set_data))
+    deck = state.decks.decks.get(game.deck_id) if game.deck_id else None
+    game_view.append_history(game_view.build_record(game, state.scanner.set_data, (deck or {}).get("format", "")))
 
 
 def _record_match(match_id, result, event_id, stamp):
@@ -188,6 +192,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
     app.include_router(routes_decks.router)
     app.include_router(routes_game.router)
     app.include_router(routes_constructed.router)
+    app.include_router(routes_meta.router)
 
     @app.get("/api/jobs")
     def jobs():

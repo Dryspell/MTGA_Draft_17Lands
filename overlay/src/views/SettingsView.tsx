@@ -69,6 +69,18 @@ export function SettingsView() {
         ))}
       </Section>
 
+      <Section title="Tournament metagame">
+        <Check checked={!!s.meta_enabled} onChange={(v) => patchSettings({ meta_enabled: v })} label="Use online tournament data"
+          hint="Downloads recent tournament decklists at most once a day to name opponents' archetypes and compare decks. Off means nothing is fetched." />
+        {s.meta_enabled && (
+          <>
+            <Check checked={!!s.meta_mtgtop8} onChange={(v) => patchSettings({ meta_mtgtop8: v })}
+              label="Also read mtgtop8.com" hint="Adds named archetypes and meta share from MTGO and paper events, and covers Alchemy. mtgtop8 has no official API, so pages are read slowly (about a minute per format) and may break if the site changes." />
+            <KeyRow key={s.meta_spicerack_key} value={s.meta_spicerack_key} onSave={(v) => patchSettings({ meta_spicerack_key: v })} />
+          </>
+        )}
+      </Section>
+
       <Section title="System paths">
         <PathRow
           key={`log:${s.arena_log_location}`}
@@ -108,6 +120,17 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
     <div className="flex items-center justify-between gap-3 py-1 text-[12px]" title={hint}>
       <span className="text-stone-300">{label}</span>
       {children}
+    </div>
+  )
+}
+
+function KeyRow({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [draft, setDraft] = useState(value)
+  const commit = () => draft.trim() !== value && onSave(draft.trim())
+  return (
+    <div className="flex flex-col gap-1 py-1.5">
+      <span className="text-[12px] text-stone-300">Spicerack API key (optional)</span>
+      <Input type="password" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} placeholder="Only if Spicerack asks for one" />
     </div>
   )
 }

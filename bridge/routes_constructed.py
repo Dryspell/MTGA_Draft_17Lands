@@ -5,12 +5,12 @@ simulations, and match statistics.
 """
 
 from collections import Counter, defaultdict
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from bridge import game_view
+from bridge import game_view, meta, routes_meta
 from bridge.arena_cards import arena_cards
 from bridge.decks import ANY_OPPONENT, is_limited_event, local_time, names_key
 from bridge.serialize import serialize_card
@@ -163,12 +163,12 @@ def _deck(deck_id: str) -> Dict:
     return d
 
 
-def _breakdown(records: List[Dict]) -> Dict:
+def _breakdown(records: List[Dict], formats: Callable[[Dict], Optional[str]] = lambda r: None) -> Dict:
     by_event = defaultdict(list)
     by_opp = defaultdict(list)
     for r in records:
         by_event[r.get("eventId", "")].append(r)
-        by_opp[(r.get("opponent") or {}).get("archetypeName") or "Unknown"].append(r)
+        by_opp[routes_meta.opponent_label(r, formats(r))].append(r)
     return {
         "overall": _wl(records),
         "onPlay": _wl([r for r in records if r.get("onPlay") is True]),
@@ -249,10 +249,13 @@ def _detail(d: Dict) -> Dict:
     lib = _library()
     records, decks, assigned = _constructed_history()
     mine = [r for r in records if (assigned.get(r["id"]) or {}).get("id") == d["id"]]
+    fmt = meta.format_of(d.get("format", ""))
     return {
         "versions": _versions(d, mine),
         "guides": _guides(d),
         "sideboardHistory": _sideboard_history(mine),
+        "metaFormat": fmt or "",
+        "metaArchetypes": meta.meta_store.names(fmt),
         **_summary(d, mine),
         "main": _rows(d.get("main", [])),
         "side": _rows(d.get("side", [])),
@@ -260,10 +263,10 @@ def _detail(d: Dict) -> Dict:
         "companions": _rows(d.get("companions", [])),
         "collection": lib.missing(d),
         "text": lib.export_text(d),
-        "stats": _breakdown(mine),
+        "stats": _breakdown(mine, lambda r: routes_meta.record_format(r, d)),
         "recent": [
             {"id": r["id"], "time": r.get("time"), "result": r.get("result"), "eventId": r.get("eventId"), "onPlay": r.get("onPlay"),
-             "opponent": (r.get("opponent") or {}).get("archetypeName") or "", "colors": (r.get("opponent") or {}).get("colors", [])}
+             "opponent": routes_meta.opponent_label(r, routes_meta.record_format(r, d)), "colors": (r.get("opponent") or {}).get("colors", [])}
             for r in sorted(mine, key=lambda r: r.get("time", ""), reverse=True)[:15]
         ],
     }
@@ -385,7 +388,7 @@ def constructed_stats():
     for r in records:
         colors[game_view.color_key((r.get("opponent") or {}).get("colors", [])) or "?"].append(r)
     return {
-        **_breakdown(records),
+        **_breakdown(records, lambda r: routes_meta.record_format(r, assigned.get(r["id"]))),
         "byDeck": deck_rows,
         "byOpponentColors": sorted(({"key": k, **_wl(v)} for k, v in colors.items()), key=lambda x: -x["games"]),
     }

@@ -1,23 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { useApp } from '../store'
-import type { CollectionCheck, ConstructedDeck, ConstructedDeckSummary, DeckCard, DeckEntry, DeckVersion, RecordBreakdown, SideboardGuide, SimStats, WinLoss } from '../types'
-import { identityColor, isCreature, isLand } from '../lib/cards'
+import type { CollectionCheck, ConstructedDeck, ConstructedDeckSummary, DeckCard, DeckEntry, DeckVersion, MetaCompare, RecordBreakdown, SideboardGuide, SimStats, WinLoss } from '../types'
+import { RARITY_TONE, WILDCARDS, identityColor, isCreature, isLand } from '../lib/cards'
 import { openingLands } from '../lib/deck'
 import { eventLabel } from '../lib/game'
 import { copyText, readClipboard } from '../lib/platform'
 import { useCardProps } from '../components/cardInteractions'
 import { ManaCost } from '../components/ManaCost'
 import { DeckStats, DeckSummaryBar, SampleHand, SimResults } from '../components/DeckPanels'
-import { Button, Check, Empty, Input, Modal, Section, Select, Spinner } from '../components/primitives'
+import { Button, Check, Empty, Input, Modal, Section, Segmented, Select, Spinner } from '../components/primitives'
 import { Breakdown, Pips, WinLossText } from '../components/Records'
+import { MetaView } from './MetaView'
 
 type DeckList = Awaited<ReturnType<typeof api.constructedDecks>>
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
 const winRate = (r: WinLoss) => (r.wins + r.losses ? r.wins / (r.wins + r.losses) : 0)
-const RARITY_TONE: Record<string, string> = { common: 'text-stone-300', uncommon: 'text-sky-200', rare: 'text-amber-300', mythic: 'text-orange-400' }
-const WILDCARDS = ['common', 'uncommon', 'rare', 'mythic'] as const
 
 export function ConstructedView() {
   const { decksVersion, toast } = useApp()
@@ -28,7 +27,12 @@ export function ConstructedView() {
   const [format, setFormat] = useState('')
   const [showUnknown, setShowUnknown] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [mode, setModeState] = useState<'decks' | 'meta'>(() => (localStorage.getItem('constructed-mode') === 'meta' ? 'meta' : 'decks'))
 
+  const setMode = (m: 'decks' | 'meta') => {
+    localStorage.setItem('constructed-mode', m)
+    setModeState(m)
+  }
   const setSelected = (id: string | null) => {
     if (id) localStorage.setItem('constructed-deck', id)
     else localStorage.removeItem('constructed-deck')
@@ -46,6 +50,14 @@ export function ConstructedView() {
       (showUnknown || d.known) && (!format || d.format === format) && (!q || d.name.toLowerCase().includes(q)))
   }, [list, query, format, showUnknown])
 
+  const switcher = (
+    <div className="mb-2 flex">
+      <Segmented value={mode} onChange={setMode} options={[{ value: 'decks', label: 'My decks' }, { value: 'meta', label: 'Metagame' }]} />
+    </div>
+  )
+  if (mode === 'meta') {
+    return <div>{switcher}<MetaView onImported={(d) => { setSelected(d.id); setMode('decks') }} /></div>
+  }
   if (error && !list) return <Empty title="Constructed decks unavailable">{error}</Empty>
   if (!list) return <Empty title={<span className="flex items-center gap-2"><Spinner /> Loading decks…</span>} />
 
@@ -54,6 +66,7 @@ export function ConstructedView() {
 
   return (
     <div className="@container">
+      {switcher}
       <div className="grid items-start gap-3 @min-[720px]:grid-cols-[230px_minmax(0,1fr)]">
         <aside className="flex flex-col gap-2 rounded-lg bg-panel p-2 @min-[720px]:sticky @min-[720px]:top-0 @min-[720px]:max-h-[calc(100vh-7rem)]">
           <div className="flex gap-1.5">
@@ -221,6 +234,7 @@ function DeckDetail({ summary, onDeleted }: { summary: ConstructedDeckSummary; o
                 <RecordPanel stats={deck.stats} recent={deck.recent} />
                 <CollectionPanel check={deck.collection} />
               </div>
+              <MetaComparePanel deck={deck} />
               <GuidesPanel deck={deck} onChange={setDeck} />
               {deck.versions.length > 0 && <VersionsPanel versions={deck.versions} />}
               <SampleHand deck={deck.main} />
@@ -328,6 +342,82 @@ function VersionsPanel({ versions }: { versions: DeckVersion[] }) {
   )
 }
 
+function MetaComparePanel({ deck }: { deck: ConstructedDeck }) {
+  const { config } = useApp()
+  const enabled = !!config?.settings.meta_enabled
+  const [archetype, setArchetype] = useState('')
+  const [result, setResult] = useState<MetaCompare | null | undefined>(undefined)
+  const listKey = deck.main.map((c) => `${c.grpId}:${c.count}`).join(',')
+  useEffect(() => {
+    if (!enabled) return
+    let alive = true
+    api.compareMeta(deck.id, archetype).then((r) => alive && setResult(r.compare ?? null)).catch(() => alive && setResult(null))
+    return () => { alive = false }
+  }, [enabled, deck.id, archetype, listKey])
+
+  if (!enabled || result === undefined || !deck.metaFormat) return null
+  if (!result) {
+    return (
+      <Section id="constructed_meta" title="Compared with the meta">
+        <p className="text-[12px] text-stone-500">No {deck.metaFormat} tournament data downloaded yet. Open Metagame above to get it.</p>
+      </Section>
+    )
+  }
+  const { archetype: arch, similarity, missing, extra, nearest } = result
+  const changes = nearest ? [...nearest.add, ...nearest.cut].reduce((n, c) => n + c.count, 0) : 0
+  return (
+    <Section
+      id="constructed_meta"
+      title="Compared with the meta"
+      right={(
+        <Select value={arch.id} onChange={(e) => setArchetype(e.target.value)} className="max-w-[200px]" title="Compare with another archetype">
+          {result.options.map((o) => <option key={o.id} value={o.id}>{o.name} · {pct(o.similarity)}</option>)}
+        </Select>
+      )}
+    >
+      <div className="flex flex-col gap-2 text-[12px]">
+        <p className="text-stone-300">
+          {pct(similarity)} similar to <span className="font-semibold text-white">{arch.name}</span>
+          <span className="text-stone-500"> · {pct(arch.share)} of the {result.format} meta{arch.winRate !== null ? ` · ${pct(arch.winRate)} tournament match wins` : ''}</span>
+        </p>
+        {similarity < 0.3 && <p className="text-[11px] text-amber-300">Your list doesn't closely match any tournament archetype, so read the differences as ideas rather than fixes.</p>}
+        <div className="grid gap-3 @min-[460px]:grid-cols-2">
+          <div>
+            <div className="mb-0.5 text-[10px] font-semibold tracking-wider text-stone-500 uppercase">Stock cards you play fewer of</div>
+            {missing.length ? missing.map((m) => (
+              <div key={m.name} className="flex items-center gap-2" title={`In ${pct(m.inclusion)} of ${arch.name} lists`}>
+                <span className="tabular w-8 text-right text-stone-400">{m.have}/{m.typical}</span>
+                <span className={`min-w-0 flex-1 truncate ${m.land ? 'text-stone-400' : 'text-stone-200'}`}>{m.name}</span>
+                <span className="tabular text-[10px] text-stone-500">{pct(m.inclusion)}</span>
+              </div>
+            )) : <p className="text-stone-500">You play every core card.</p>}
+          </div>
+          <div>
+            <div className="mb-0.5 text-[10px] font-semibold tracking-wider text-stone-500 uppercase">Your own picks</div>
+            {extra.length ? extra.slice(0, 12).map((x) => (
+              <div key={x.name} className="flex items-center gap-2">
+                <span className="tabular w-8 text-right text-stone-400">{x.count}</span>
+                <span className="min-w-0 flex-1 truncate text-stone-200">{x.name}</span>
+                <span className="text-[10px] text-stone-500">{x.inclusion ? pct(x.inclusion) : 'not in lists'}</span>
+              </div>
+            )) : <p className="text-stone-500">Nothing unusual.</p>}
+            {extra.length > 12 && <p className="text-[11px] text-stone-500">and {extra.length - 12} more</p>}
+          </div>
+        </div>
+        {nearest && changes > 0 && (
+          <div className="rounded bg-white/[0.03] px-2 py-1.5">
+            <div className="text-[11px] text-stone-400">
+              Closest list: {nearest.player || 'unknown player'} · {nearest.event}{nearest.date ? ` · ${new Date(nearest.date).toLocaleDateString()}` : ''}.
+              {changes <= 30 ? ' To match it:' : ` It differs from yours by ${changes} cards.`}
+            </div>
+            {changes <= 30 && <div className="mt-0.5 text-[11px]"><Changes ins={nearest.add} outs={nearest.cut} /></div>}
+          </div>
+        )}
+      </div>
+    </Section>
+  )
+}
+
 function GuidesPanel({ deck, onChange }: { deck: ConstructedDeck; onChange: (d: ConstructedDeck) => void }) {
   const { toast } = useApp()
   const [editing, setEditing] = useState<SideboardGuide | null>(null)
@@ -393,7 +483,7 @@ function GuideEditor({ deck, guide, onCancel, onSaved }: { deck: ConstructedDeck
   const [busy, setBusy] = useState(false)
   const options = useMemo(() => {
     const faced = [...deck.stats.byOpponent.map((r) => r.key), ...deck.sideboardHistory.map((s) => s.key)].filter((k) => k && k !== 'Unknown')
-    return [...new Set([ANY_OPPONENT, ...SPEEDS, ...faced])]
+    return [...new Set([ANY_OPPONENT, ...SPEEDS, ...faced, ...deck.metaArchetypes])]
   }, [deck])
   const totalIn = [...ins.values()].reduce((a, b) => a + b, 0)
   const totalOut = [...outs.values()].reduce((a, b) => a + b, 0)
@@ -415,6 +505,7 @@ function GuideEditor({ deck, guide, onCancel, onSaved }: { deck: ConstructedDeck
         </label>
         <p className="text-[10px] text-stone-500">
           During a match the most specific plan wins: the exact archetype ("Rakdos Aggro"), then its colors ("Rakdos"), then its style ("Aggro"), then "{ANY_OPPONENT}".
+          {deck.metaArchetypes.length > 0 && ` Tournament archetypes from the ${deck.metaFormat} metagame are in the list too.`}
         </p>
         <div className="grid gap-3 @min-[460px]:grid-cols-2">
           <PlanColumn title={`Bring in · ${totalIn}`} cards={deck.side} counts={ins} onChange={setIns} tone="text-emerald-300"

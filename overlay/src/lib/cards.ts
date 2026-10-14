@@ -17,6 +17,9 @@ export const BASIC_LANDS: Record<string, string> = { Plains: 'W', Island: 'U', S
 
 export const ALL_DECKS = 'All Decks'
 
+export const WILDCARDS = ['common', 'uncommon', 'rare', 'mythic'] as const
+export const RARITY_TONE: Record<string, string> = { common: 'text-stone-300', uncommon: 'text-sky-200', rare: 'text-amber-300', mythic: 'text-orange-400' }
+
 export function cardColors(card: Pick<Card, 'colors' | 'manaCost'>): string[] {
   if (card.colors.length) return card.colors
   return COLORS.filter((c) => card.manaCost.includes(c))

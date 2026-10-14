@@ -18,6 +18,7 @@ from typing import Callable, Dict, List, Optional
 
 from src import constants
 
+from bridge import meta
 from bridge.arena_cards import arena_cards
 from bridge.decks import is_limited_event, pick_guide
 from bridge.game import Game, GameTracker
@@ -217,6 +218,17 @@ def _opponent_profile(game: Game, resolve: Resolver, earlier: Optional[Counter] 
         "archetypeName": archetype_name(colors, raw),
         "seen": seen,
     }
+
+
+def _with_meta(profile: Dict, game: Game, resolve: Resolver, deck_format: str = "") -> Dict:
+    """Swap in the tournament archetype name when the revealed cards clearly match one."""
+    names: Counter = Counter()
+    for grp, n in (Counter(game.opp_seen.values()) | (game.match_opp or Counter())).items():
+        names[_name(resolve, grp)] += n
+    hit = meta.meta_store.classify(meta.format_of(deck_format, game.event_id), names, profile["colors"])
+    if hit:
+        profile.update(localArchetype=profile["archetypeName"], archetypeName=hit["name"], meta=hit)
+    return profile
 
 
 def _trick_kind(card: Dict) -> str:
@@ -519,11 +531,12 @@ def build_view(tracker: GameTracker, set_data, history: Optional[List[Dict]] = N
     history = history if history is not None else load_history_cached()
     similar, guide = None, None
     if constructed:
+        deck = library.decks.get(game.deck_id) if library and game.deck_id else None
+        profile = _with_meta(profile, game, resolve, (deck or {}).get("format", ""))
         seen_names = [c["name"] for c in profile["seen"]] + [_name(resolve, g) for g in game.match_opp]
         similar = similar_opponents(seen_names, history, game.match_id) or opponents_by_colors(profile["colors"], seen_names, history, game.match_id)
         tricks = _constructed_tricks(game, resolve, opp_side["lands"]["untapped"], opp_side["lands"]["colors"], similar)
-        deck = library.decks.get(game.deck_id) if library and game.deck_id else None
-        picked = pick_guide((deck or {}).get("guides") or {}, profile["archetypeName"])
+        picked = pick_guide((deck or {}).get("guides") or {}, profile["archetypeName"], profile.get("localArchetype", ""))
         if picked:
             guide = {"key": picked[0], **picked[1]}
     else:
@@ -584,7 +597,7 @@ def sideboard_changes(game: Game, resolve: Resolver) -> Dict[str, List[Dict]]:
 
 # ---- post-game records ----------------------------------------------------
 
-def build_record(game: Game, set_data) -> Dict:
+def build_record(game: Game, set_data, deck_format: str = "") -> Dict:
     fmt = game_format(game)
     resolve = make_resolver(set_data if fmt == "limited" or not arena_cards.loaded else None)
     deck = Counter(game.deck)
@@ -601,6 +614,8 @@ def build_record(game: Game, set_data) -> Dict:
     else:
         verdict = "smooth"
     profile = _opponent_profile(game, resolve, game.match_opp if fmt == "constructed" else None)
+    if fmt == "constructed":
+        profile = _with_meta(profile, game, resolve, deck_format)
     hand_mulls = max(0, 7 - len(game.opening_hand)) if game.opening_hand else 0
     return {
         "id": game.key,
@@ -622,6 +637,7 @@ def build_record(game: Game, set_data) -> Dict:
             "colors": profile["colors"],
             "archetype": profile["archetype"],
             "archetypeName": profile["archetypeName"],
+            "localArchetype": profile.get("localArchetype", profile["archetypeName"]),
             "cards": [{"name": c["name"], "count": c["count"]} for c in profile["seen"]],
         },
         "mana": {"cardsSeen": len(seen), "landsSeen": lands_seen, "landPct": land_pct, "missedDrops": missed, "verdict": verdict},

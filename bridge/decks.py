@@ -61,16 +61,21 @@ def local_time(stamp: str) -> str:
     return t.isoformat(timespec="seconds")
 
 
-def pick_guide(guides: Dict[str, Dict], archetype: str) -> Optional[Tuple[str, Dict]]:
+def pick_guide(guides: Dict[str, Dict], *labels: str) -> Optional[Tuple[str, Dict]]:
     """The saved sideboard plan that best fits an opponent label like 'Rakdos Aggro':
-    exact label, then its colors ('Rakdos'), then its speed ('Aggro'), then 'Any opponent'."""
+    exact label, then its colors ('Rakdos'), then its speed ('Aggro'), then 'Any opponent'.
+    With several labels (a metagame name, then the local guess), each tier tries them in order."""
     if not guides:
         return None
-    words = (archetype or "").split()
-    speed = words[-1] if words and words[-1] in SPEEDS else ""
-    base = " ".join(words[:-1]) if speed else " ".join(words)
+    exact, bases, speeds = [], [], []
+    for label in labels:
+        words = (label or "").split()
+        speed = words[-1] if words and words[-1] in SPEEDS else ""
+        exact.append(label)
+        bases.append(" ".join(words[:-1]) if speed else " ".join(words))
+        speeds.append(speed)
     lowered = {k.lower(): k for k in guides}
-    for candidate in (archetype, base, speed, ANY_OPPONENT):
+    for candidate in (*exact, *bases, *speeds, ANY_OPPONENT):
         key = lowered.get((candidate or "").lower())
         if candidate and key:
             return key, guides[key]

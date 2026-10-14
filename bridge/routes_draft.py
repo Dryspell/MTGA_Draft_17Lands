@@ -89,6 +89,8 @@ async def patch_config(body: Dict[str, Dict[str, Any]]):
         scanner.set_data.unknown_id_cache.clear()
     if "draft_log_enabled" in settings_changes and scanner.arena_file == state.orchestrator.live_log_path:
         scanner.log_enable(config.settings.draft_log_enabled)
+    if any(k.startswith("meta_") for k in settings_changes):
+        state.refresh_game = True
 
     state.request_refresh()
     return config.model_dump()
