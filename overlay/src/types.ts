@@ -156,6 +156,16 @@ export interface Config {
 
 export type JobStatus = 'running' | 'done' | 'error'
 
+export interface PaperList {
+  cards: DeckEntry[]
+  text: string
+  digital: DeckEntry[]
+  rebalanced: string[]
+  basics: number
+  tcgplayerUrl: string
+  cardKingdomUrl: string
+}
+
 export interface Job<T = unknown> {
   id: string
   kind: string

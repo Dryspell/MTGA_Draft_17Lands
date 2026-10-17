@@ -1,6 +1,6 @@
 import type {
   Card, CollectionCheck, Config, ConstructedDeck, ConstructedDeckSummary, ConstructedStats, DatasetFile, DeckEntry, DeckView,
-  GameRecord, HistoryLog, Job, MatchSummary, Meta, MetaCompare, MetaFormatData, MetaOverview, SealedState, SetOption, SimStats, TierFile,
+  GameRecord, HistoryLog, Job, MatchSummary, Meta, MetaCompare, MetaFormatData, MetaOverview, PaperList, SealedState, SetOption, SimStats, TierFile,
 } from './types'
 
 export const HOST = import.meta.env.VITE_BRIDGE_HOST ?? '127.0.0.1:8617'
@@ -95,6 +95,8 @@ export const api = {
   constructedStats: () => get<ConstructedStats>('/api/constructed/stats'),
   matches: () => get<MatchSummary[]>('/api/matches'),
   setMatchNote: (id: string, note: string) => request('PUT', `/api/matches/${encodeURIComponent(id)}/note`, { note }),
+  paperList: (id: string, sideboard: boolean, basics: boolean) =>
+    get<PaperList>(`/api/constructed/decks/${encodeURIComponent(id)}/paper?sideboard=${sideboard}&basics=${basics}`),
   saveGuide: (id: string, key: string, ins: DeckEntry[], outs: DeckEntry[], note: string, previous = '') =>
     request<ConstructedDeck>('PUT', `/api/constructed/decks/${encodeURIComponent(id)}/guides`, { key, ins, outs, note, previous }),
   deleteGuide: (id: string, key: string) =>

@@ -178,6 +178,7 @@ class ArenaCards:
         self.cards: Dict[str, Dict] = {}
         self.by_name: Dict[str, int] = {}
         self.rarity: Dict[str, str] = {}
+        self.printings: Dict[str, set] = {}
         self.source: Optional[str] = None
         self._lock = threading.Lock()
 
@@ -218,10 +219,12 @@ class ArenaCards:
         by_name: Dict[str, int] = {}
         rank: Dict[str, tuple] = {}
         rarity: Dict[str, str] = {}
+        printings: Dict[str, set] = {}
         for key, c in cards.items():
             if c.get("token"):
                 continue
             grp = int(key)
+            printings.setdefault(c["name"], set()).add((c.get("set") or "").split("-")[0])
             if "Basic" in c.get("supertypes", []):
                 c["rarity"] = "basic"
             regular = "-" not in c.get("set", "") and not c.get("set", "").startswith(("Y", "SPG", "SLD"))
@@ -233,7 +236,7 @@ class ArenaCards:
                 if name not in rank or score > rank[name]:
                     rank[name], by_name[name] = score, grp
         with self._lock:
-            self.cards, self.by_name, self.rarity = cards, by_name, rarity
+            self.cards, self.by_name, self.rarity, self.printings = cards, by_name, rarity, printings
 
     def craft_rarity(self, name: str) -> str:
         """Cheapest wildcard that crafts this card (lowest rarity it was printed at)."""
@@ -269,6 +272,12 @@ class ArenaCards:
             if whole and whole["name"].startswith(card["name"] + " /"):
                 return dict(whole, grpId=int(parent))
         return dict(card, grpId=grp)
+
+    def digital_only(self, name: str) -> bool:
+        """Only ever printed in Alchemy sets (YMID, YDSK...), which are all digital designs.
+        Mixed sets like Alchemy Horizons also reprint paper cards, so they aren't counted."""
+        sets = self.printings.get(name)
+        return bool(sets) and all(s.startswith("Y") for s in sets)
 
     def names(self) -> List[str]:
         return sorted({c["name"] for c in self.cards.values() if not c.get("token") and c.get("primary")})

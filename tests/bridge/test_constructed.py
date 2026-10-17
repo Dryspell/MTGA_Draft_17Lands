@@ -247,6 +247,28 @@ def test_lookup_handles_split_rooms_and_accents():
     assert lib.lookup("Kili the Resourceful")["grpId"] == 5
 
 
+def test_paper_list_for_stores(tmp_path):
+    extra = {
+        6: {"name": "A-Sheoldred", "types": ["Creature"], "colors": ["B"], "cmc": 4, "rarity": "mythic"},
+        7: {"name": "Alchemy Only", "types": ["Creature"], "colors": ["B"], "cmc": 2, "rarity": "rare"},
+        8: {"name": "Commit /// Memory", "types": ["Instant"], "colors": ["U"], "cmc": 4, "rarity": "rare"},
+    }
+
+    class Cards(FakeCards):
+        def get(self, grp):
+            return dict(extra[int(grp)], image=[]) if int(grp) in extra else super().get(grp)
+
+        def digital_only(self, name):
+            return name == "Alchemy Only"
+
+    lib = DeckLibrary(Cards(), path=str(tmp_path / "decks.json"))
+    deck = {"main": [[1, 20], [2, 4], [4, 1], [6, 1], [7, 2], [8, 1]], "side": [[2, 2]]}
+    out = lib.paper_list(deck)
+    assert out["text"] == "6 Opt\n2 Sheoldred\n1 Commit // Memory"
+    assert out["digital"] == [{"name": "Alchemy Only", "count": 2}] and out["rebalanced"] == ["Sheoldred"] and out["basics"] == 20
+    assert lib.paper_list(deck, sideboard=False, basics=True)["text"].startswith("20 Island\n4 Opt")
+
+
 def test_renaming_a_plan_replaces_it(tmp_path):
     lib = DeckLibrary(FakeCards(), path=str(tmp_path / "decks.json"))
     _upsert(lib, "2026-10-13T13:00:00-05:00", DECK["MainDeck"], "DeckUpsertDeckV3")

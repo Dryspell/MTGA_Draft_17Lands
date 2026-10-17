@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { useApp } from '../store'
-import type { CollectionCheck, ConstructedDeck, ConstructedDeckSummary, DeckCard, DeckEntry, DeckVersion, MetaCompare, RecordBreakdown, SideboardGuide, SimStats, WinLoss } from '../types'
+import type { CollectionCheck, ConstructedDeck, ConstructedDeckSummary, DeckCard, DeckEntry, DeckVersion, MetaCompare, PaperList, RecordBreakdown, SideboardGuide, SimStats, WinLoss } from '../types'
 import { RARITY_TONE, WILDCARDS, identityColor, isCreature, isLand } from '../lib/cards'
 import { openingLands } from '../lib/deck'
 import { eventLabel } from '../lib/game'
@@ -155,6 +155,7 @@ function DeckDetail({ summary, onChanged, onDeleted }: { summary: ConstructedDec
   const { decksVersion, toast } = useApp()
   const [deck, setDeck] = useState<ConstructedDeck | null>(null)
   const [sim, setSim] = useState<{ stats: SimStats | null; advice: string[]; busy: boolean; message?: string }>({ stats: null, advice: [], busy: false })
+  const [buying, setBuying] = useState(false)
 
   const simulated = useRef('')
   const runSim = useCallback(() => {
@@ -220,11 +221,13 @@ function DeckDetail({ summary, onChanged, onDeleted }: { summary: ConstructedDec
         </div>
         <div className="flex gap-1.5">
           {deck.known && <Button onClick={copy}>Copy for Arena</Button>}
+          {deck.known && <Button variant="ghost" onClick={() => setBuying(true)} title="Shopping list for TCGplayer or Card Kingdom">Buy in paper</Button>}
           {deck.source === 'import' && <Button variant="ghost" onClick={rename}>Rename</Button>}
           {deck.source === 'import' && <Button variant="danger" onClick={remove}>Delete</Button>}
         </div>
       </div>
 
+      {buying && <PaperDialog deck={deck} onClose={() => setBuying(false)} />}
       {!deck.known ? (
         <Empty title="Card list not logged yet">
           Arena only writes a deck's cards to its log when you save it, queue with it, or play it. Open "{deck.name}" in Arena's deck builder (or play a game with it) and it will show up here.
@@ -649,6 +652,62 @@ function WildcardCost({ check }: { check: CollectionCheck }) {
         )
       })}
     </div>
+  )
+}
+
+function PaperDialog({ deck, onClose }: { deck: ConstructedDeck; onClose: () => void }) {
+  const { toast } = useApp()
+  const [sideboard, setSideboard] = useState(true)
+  const [basics, setBasics] = useState(false)
+  const [list, setList] = useState<PaperList | null>(null)
+
+  useEffect(() => {
+    api.paperList(deck.id, sideboard, basics).then(setList).catch((e) => toast((e as Error).message, 'error'))
+  }, [deck.id, sideboard, basics, toast])
+
+  const total = list?.cards.reduce((n, c) => n + c.count, 0) ?? 0
+  const copy = async (then?: string) => {
+    if (!list) return
+    await copyText(list.text)
+    toast(then ? 'List copied. Paste it into the deck builder on Card Kingdom.' : 'Shopping list copied', 'success')
+    if (then) api.openUrl(then)
+  }
+
+  return (
+    <Modal
+      title={`Buy ${deck.name} in paper`}
+      onClose={onClose}
+      width="max-w-lg"
+      footer={(
+        <>
+          <Button variant="ghost" onClick={() => copy()} disabled={!total}>Copy list</Button>
+          <div className="flex-1" />
+          <Button onClick={() => list && copy(list.cardKingdomUrl)} disabled={!total} title="Copies the list and opens Card Kingdom's deck builder">Card Kingdom</Button>
+          <Button variant="primary" onClick={() => list && api.openUrl(list.tcgplayerUrl)} disabled={!total} title="Opens TCGplayer's mass entry with the list filled in">TCGplayer</Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-2 text-[12px]">
+        <div className="flex flex-wrap gap-x-4">
+          <Check checked={sideboard} onChange={setSideboard} label="Include the sideboard" />
+          <Check checked={basics} onChange={setBasics} label={`Include basic lands${list?.basics ? ` (${list.basics})` : ''}`} />
+        </div>
+        {!list ? <Spinner /> : (
+          <>
+            <textarea readOnly value={list.text} className="h-48 resize-none rounded-md bg-white/[0.06] p-2 font-mono text-[11px] text-stone-100 outline-none" />
+            <p className="text-[11px] text-stone-500">{total} cards, without set codes, so the store offers its own printings and prices.</p>
+            {list.rebalanced.length > 0 && (
+              <p className="text-[11px] text-stone-400">Rebalanced Alchemy cards are listed as their paper originals: {list.rebalanced.join(', ')}.</p>
+            )}
+            {list.digital.length > 0 && (
+              <p className="text-[11px] text-amber-300">
+                Arena-only, no paper version: {list.digital.map((c) => `${c.count} ${c.name}`).join(', ')}. Pick paper replacements for these.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </Modal>
   )
 }
 

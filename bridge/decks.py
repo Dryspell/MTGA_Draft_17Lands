@@ -493,6 +493,42 @@ class DeckLibrary:
             parts += ["", "Sideboard", *lines(deck["side"])]
         return "\n".join(parts)
 
+    def paper_list(self, deck: Dict, sideboard: bool = True, basics: bool = False) -> Dict:
+        """The deck as a store shopping list: plain 'count name' lines, paper names, one entry
+        per card. Rebalanced Alchemy cards become their originals; Arena-only cards are listed
+        apart because no paper copy exists."""
+        rows = list(deck.get("commander", [])) + list(deck.get("companions", [])) + list(deck.get("main", []))
+        if sideboard:
+            rows += list(deck.get("side", []))
+        counts: Counter = Counter()
+        digital: Counter = Counter()
+        rebalanced, basic_count = set(), 0
+        digital_only = getattr(self.cards, "digital_only", lambda name: False)
+        for grp, n in rows:
+            card = self.cards.get(grp)
+            if not card:
+                continue
+            name = card["name"]
+            if name.startswith("A-"):
+                name = name[2:]
+                rebalanced.add(name)
+            if "Basic" in card.get("supertypes", []) and "Land" in card.get("types", []):
+                basic_count += n
+                if not basics:
+                    continue
+            if digital_only(card["name"]):
+                digital[name] += n
+                continue
+            counts[name.replace(" /// ", " // ")] += n
+        cards = [{"name": k, "count": v} for k, v in counts.items()]
+        return {
+            "cards": cards,
+            "text": "\n".join(f"{c['count']} {c['name']}" for c in cards),
+            "digital": [{"name": k, "count": v} for k, v in digital.items()],
+            "rebalanced": sorted(rebalanced),
+            "basics": basic_count,
+        }
+
     # ---- collection -------------------------------------------------------
 
     def missing(self, deck: Dict) -> Dict:

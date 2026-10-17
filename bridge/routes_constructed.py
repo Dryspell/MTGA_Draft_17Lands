@@ -6,6 +6,7 @@ simulations, and match statistics.
 
 from collections import Counter, defaultdict
 from typing import Callable, Dict, List, Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -276,6 +277,16 @@ def _detail(d: Dict) -> Dict:
 @router.get("/constructed/decks/{deck_id}")
 def get_deck(deck_id: str):
     return _detail(_deck(deck_id))
+
+
+@router.get("/constructed/decks/{deck_id}/paper")
+def paper_list(deck_id: str, sideboard: bool = True, basics: bool = False):
+    """A shopping list for paper stores, with a TCGplayer mass-entry link."""
+    out = _library().paper_list(_deck(deck_id), sideboard=sideboard, basics=basics)
+    entry = "||".join(f"{c['count']} {c['name']}" for c in out["cards"])
+    out["tcgplayerUrl"] = "https://www.tcgplayer.com/massentry?" + urlencode({"productline": "Magic", "c": entry}) if entry else ""
+    out["cardKingdomUrl"] = "https://www.cardkingdom.com/builder"
+    return out
 
 
 class ImportBody(BaseModel):
